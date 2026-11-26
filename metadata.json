@@ -1,0 +1,6 @@
+{
+  "name": "המספרה של יוסף",
+  "description": "אפליקציית ניהול וזימון תורים למספרה של יוסף בעברית מלאה",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

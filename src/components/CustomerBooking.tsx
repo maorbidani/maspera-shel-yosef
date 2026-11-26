@@ -1,0 +1,578 @@
+import { useEffect, useMemo, useState } from 'react';
+import {
+  Calendar,
+  CalendarPlus,
+  CheckCircle2,
+  Clock,
+  MessageCircle,
+  Phone,
+  Scissors,
+  User,
+} from 'lucide-react';
+import {
+  addDaysToDateStr,
+  buildGoogleCalendarUrl,
+  buildWhatsAppUrl,
+  formatHebrewDayChip,
+  formatHebrewFullDate,
+  generateAvailableSlots,
+  getDayKeyFromDateStr,
+  getOpenDatesInRange,
+  isValidIsraeliPhone,
+  toLocalDateStr,
+  toTimeWithSeconds,
+} from '../lib/dateUtils';
+import {
+  createAppointment,
+  fetchAppointmentsByDate,
+  isSupabaseConfigured,
+} from '../lib/supabase';
+import type { Appointment, BarbershopSettings } from '../types';
+
+interface CustomerBookingProps {
+  settings: BarbershopSettings;
+  settingsLoading: boolean;
+}
+
+export function CustomerBooking({ settings, settingsLoading }: CustomerBookingProps) {
+  const todayStr = useMemo(() => toLocalDateStr(new Date()), []);
+  const openDates = useMemo(
+    () => getOpenDatesInRange(settings.working_hours, settings.days_ahead, new Date()),
+    [settings.working_hours, settings.days_ahead]
+  );
+
+  const [selectedDate, setSelectedDate] = useState<string>('');
+  const [bookedTimes, setBookedTimes] = useState<string[]>([]);
+  const [slotsLoading, setSlotsLoading] = useState<boolean>(false);
+  const [slotsError, setSlotsError] = useState<string | null>(null);
+
+  const [selectedSlot, setSelectedSlot] = useState<string>('');
+  const [customerName, setCustomerName] = useState<string>('');
+  const [customerPhone, setCustomerPhone] = useState<string>('');
+  const [submitting, setSubmitting] = useState<boolean>(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [confirmedAppointment, setConfirmedAppointment] = useState<Appointment | null>(null);
+  const [heroImgFailed, setHeroImgFailed] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (openDates.length > 0 && (!selectedDate || !openDates.includes(selectedDate))) {
+      setSelectedDate(openDates[0]);
+    }
+  }, [openDates, selectedDate]);
+
+  useEffect(() => {
+    if (!selectedDate) return;
+    let active = true;
+
+    async function loadDayAppointments() {
+      setSlotsLoading(true);
+      setSlotsError(null);
+      setSelectedSlot('');
+      try {
+        const rows = await fetchAppointmentsByDate(selectedDate);
+        if (!active) return;
+        setBookedTimes(rows.map((r) => r.start_time));
+      } catch (err) {
+        if (!active) return;
+        setSlotsError(
+          err instanceof Error ? err.message : 'לא הצלחנו לטעון את השעות הפנויות'
+        );
+        setBookedTimes([]);
+      } finally {
+        if (active) setSlotsLoading(false);
+      }
+    }
+
+    void loadDayAppointments();
+    return () => {
+      active = false;
+    };
+  }, [selectedDate]);
+
+  const availableSlots = useMemo(() => {
+    if (!selectedDate) return [];
+    return generateAvailableSlots(
+      selectedDate,
+      settings.working_hours,
+      settings.slot_minutes,
+      bookedTimes,
+      new Date()
+    );
+  }, [selectedDate, settings.working_hours, settings.slot_minutes, bookedTimes]);
+
+  const selectedDayHours = useMemo(() => {
+    if (!selectedDate) return null;
+    const key = getDayKeyFromDateStr(selectedDate);
+    return settings.working_hours[key] ?? null;
+  }, [selectedDate, settings.working_hours]);
+
+  const nextAvailableDate = useMemo(() => {
+    if (!selectedDate || openDates.length <= 1) return null;
+    const idx = openDates.indexOf(selectedDate);
+    if (idx >= 0 && idx + 1 < openDates.length) {
+      return openDates[idx + 1];
+    }
+    return null;
+  }, [openDates, selectedDate]);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setFormError(null);
+
+    if (!isSupabaseConfigured) {
+      setFormError('יש להגדיר את משתני הסביבה של Supabase לפני שמירת תורים.');
+      return;
+    }
+    if (!selectedDate || !selectedSlot) {
+      setFormError('יש לבחור תאריך ושעה פנויה.');
+      return;
+    }
+    if (customerName.trim().length < 2) {
+      setFormError('יש להזין שם מלא (לפחות 2 תווים).');
+      return;
+    }
+    if (!isValidIsraeliPhone(customerPhone)) {
+      setFormError('יש להזין מספר טלפון ישראלי תקין (למשל 050-1234567).');
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const created = await createAppointment({
+        appointment_date: selectedDate,
+        start_time: toTimeWithSeconds(selectedSlot),
+        customer_name: customerName.trim(),
+        customer_phone: customerPhone.trim(),
+        source: 'web',
+        status: 'booked',
+      });
+      setConfirmedAppointment(created);
+      setBookedTimes((prev) => [...prev, created.start_time]);
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'אירעה שגיאה בקביעת התור.');
+      // Refresh slots in case the selected slot was just taken
+      try {
+        const refreshed = await fetchAppointmentsByDate(selectedDate);
+        setBookedTimes(refreshed.map((r) => r.start_time));
+      } catch {
+        // ignore refresh error
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function handleResetBooking() {
+    setConfirmedAppointment(null);
+    setSelectedSlot('');
+    setCustomerName('');
+    setCustomerPhone('');
+    setFormError(null);
+  }
+
+  if (confirmedAppointment) {
+    const confirmedTimeShort = confirmedAppointment.start_time.slice(0, 5);
+    const fullHebrewDate = formatHebrewFullDate(confirmedAppointment.appointment_date);
+    const googleCalendarHref = buildGoogleCalendarUrl({
+      title: `תספורת — ${settings.shop_name}`,
+      dateStr: confirmedAppointment.appointment_date,
+      startTimeHHMM: confirmedTimeShort,
+      durationMinutes: settings.slot_minutes,
+      details: `תור שנקבע עבור ${confirmedAppointment.customer_name} (${confirmedAppointment.customer_phone})`,
+      location: settings.shop_name,
+    });
+
+    const barberConfirmMsg = `שלום, קבעתי תור ב${settings.shop_name}\nתאריך: ${fullHebrewDate}\nשעה: ${confirmedTimeShort}\nשם: ${confirmedAppointment.customer_name}\nטלפון: ${confirmedAppointment.customer_phone}`;
+    const whatsappHref = buildWhatsAppUrl(settings.phone, barberConfirmMsg);
+
+    return (
+      <section className="mx-auto max-w-xl py-4 sm:py-8">
+        <div className="rounded-3xl border border-stone-200 bg-white p-6 sm:p-8 shadow-sm">
+          <div className="flex flex-col items-center text-center">
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700">
+              <CheckCircle2 className="h-8 w-8" />
+            </div>
+            <h1 className="mt-4 text-2xl sm:text-3xl font-bold text-stone-900 text-balance">
+              התור שלך נקבע בהצלחה
+            </h1>
+            <p className="mt-1.5 text-sm text-stone-500">
+              מחכים לך ב{settings.shop_name}
+            </p>
+          </div>
+
+          <div className="mt-6 divide-y divide-stone-100 rounded-2xl border border-stone-200 bg-stone-50/60 px-5">
+            <div className="flex items-center justify-between py-3.5 text-sm">
+              <span className="text-stone-500">תאריך</span>
+              <span className="font-semibold text-stone-900">{fullHebrewDate}</span>
+            </div>
+            <div className="flex items-center justify-between py-3.5 text-sm">
+              <span className="text-stone-500">שעה</span>
+              <span className="font-bold text-stone-900 tabular-nums text-base">
+                {confirmedTimeShort}
+              </span>
+            </div>
+            <div className="flex items-center justify-between py-3.5 text-sm">
+              <span className="text-stone-500">משך משוער</span>
+              <span className="font-medium text-stone-800 tabular-nums">
+                {settings.slot_minutes} דקות
+              </span>
+            </div>
+            <div className="flex items-center justify-between py-3.5 text-sm">
+              <span className="text-stone-500">שם הלקוח</span>
+              <span className="font-semibold text-stone-900">
+                {confirmedAppointment.customer_name}
+              </span>
+            </div>
+            <div className="flex items-center justify-between py-3.5 text-sm">
+              <span className="text-stone-500">טלפון</span>
+              <span className="font-medium text-stone-900 tabular-nums" dir="ltr">
+                {confirmedAppointment.customer_phone}
+              </span>
+            </div>
+          </div>
+
+          <div className="mt-6 flex flex-col gap-3">
+            <a
+              href={whatsappHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex min-h-[48px] w-full items-center justify-center gap-2.5 rounded-xl bg-emerald-700 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-800 active:scale-[0.99]"
+            >
+              <MessageCircle className="h-5 w-5 shrink-0" />
+              <span>שלח אישור בוואטסאפ לספר</span>
+            </a>
+
+            <a
+              href={googleCalendarHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex min-h-[48px] w-full items-center justify-center gap-2.5 rounded-xl border border-stone-300 bg-white px-5 py-3 text-sm font-semibold text-stone-900 transition-colors hover:bg-stone-50 active:scale-[0.99]"
+            >
+              <CalendarPlus className="h-5 w-5 shrink-0 text-stone-700" />
+              <span>הוסף ליומן Google</span>
+            </a>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleResetBooking}
+            className="mt-5 flex min-h-[44px] w-full items-center justify-center rounded-xl text-sm font-medium text-stone-600 transition-colors hover:bg-stone-100 hover:text-stone-900"
+          >
+            קביעת תור נוסף
+          </button>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-12 lg:items-start">
+      {/* Right Column in RTL: Shop Hero + Step 1 Date Picker */}
+      <div className="space-y-6 lg:col-span-5">
+        <div className="overflow-hidden rounded-3xl border border-stone-200 bg-white">
+          <div className="relative aspect-[16/9] w-full bg-stone-200">
+            {!heroImgFailed ? (
+              <img
+                src="/src/assets/images/barbershop_hero_1795723784153.jpg"
+                alt={settings.shop_name}
+                referrerPolicy="no-referrer"
+                onError={() => setHeroImgFailed(true)}
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <div className="flex h-full w-full flex-col items-center justify-center bg-gradient-to-br from-stone-800 to-stone-900 text-stone-200">
+                <Scissors className="h-10 w-10 text-amber-400" />
+                <span className="mt-2 font-display text-lg font-bold">
+                  {settings.shop_name}
+                </span>
+              </div>
+            )}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent" />
+            <div className="absolute inset-x-0 bottom-0 p-5 text-white">
+              <h1 className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-balance">
+                {settings.shop_name}
+              </h1>
+              <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs sm:text-sm text-stone-200">
+                <span>תור של {settings.slot_minutes} דקות</span>
+                <span aria-hidden="true">·</span>
+                {selectedDayHours?.open ? (
+                  <span className="tabular-nums">
+                    פתוח {selectedDayHours.start}–{selectedDayHours.end}
+                  </span>
+                ) : (
+                  <span>הזמנה אונליין מהירה</span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between gap-4 px-5 py-3.5 text-sm">
+            <span className="text-stone-600">שאלות או תיאום מהיר</span>
+            <div className="flex items-center gap-3">
+              <a
+                href={`tel:${settings.phone}`}
+                className="inline-flex min-h-[40px] items-center gap-1.5 text-sm font-medium text-stone-700 hover:text-stone-900 whitespace-nowrap"
+              >
+                <Phone className="h-4 w-4" />
+                <span className="tabular-nums" dir="ltr">
+                  {settings.phone}
+                </span>
+              </a>
+              <a
+                href={buildWhatsAppUrl(
+                  settings.phone,
+                  `שלום, אשמח לפרטים לגבי תור ב${settings.shop_name}`
+                )}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg bg-stone-100 px-3 py-1.5 text-xs font-semibold text-stone-900 hover:bg-stone-200 whitespace-nowrap"
+              >
+                <MessageCircle className="h-4 w-4 text-emerald-700" />
+                <span>וואטסאפ</span>
+              </a>
+            </div>
+          </div>
+        </div>
+
+        {/* Step 1: Select Date */}
+        <section className="rounded-3xl border border-stone-200 bg-white p-5">
+          <div className="flex items-center justify-between">
+            <h2 className="font-display text-lg font-bold text-stone-900">
+              1. בחירת יום
+            </h2>
+            {selectedDate && (
+              <span className="text-xs font-medium text-stone-500">
+                {formatHebrewFullDate(selectedDate)}
+              </span>
+            )}
+          </div>
+
+          {settingsLoading ? (
+            <div className="mt-4 flex gap-2.5 overflow-hidden">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="h-20 w-16 shrink-0 animate-pulse rounded-2xl bg-stone-100"
+                />
+              ))}
+            </div>
+          ) : openDates.length === 0 ? (
+            <div className="mt-4 rounded-2xl border border-stone-200 bg-stone-50 p-4 text-center text-sm text-stone-600">
+              אין ימים פתוחים להזמנה בטווח הימים הקרוב.
+            </div>
+          ) : (
+            <div className="no-scrollbar mt-4 flex gap-2.5 overflow-x-auto pb-1 lg:grid lg:grid-cols-4 lg:overflow-visible">
+              {openDates.map((dateStr) => {
+                const chip = formatHebrewDayChip(dateStr, todayStr);
+                const isSelected = selectedDate === dateStr;
+                const isTomorrow = dateStr === addDaysToDateStr(todayStr, 1);
+
+                return (
+                  <button
+                    key={dateStr}
+                    type="button"
+                    onClick={() => setSelectedDate(dateStr)}
+                    aria-pressed={isSelected}
+                    className={`flex min-h-[76px] min-w-[68px] shrink-0 flex-col items-center justify-center rounded-2xl border px-3 py-2.5 transition-all active:scale-[0.97] ${
+                      isSelected
+                        ? 'border-stone-900 bg-stone-900 text-white shadow-sm'
+                        : 'border-stone-200 bg-stone-50/70 text-stone-800 hover:border-stone-400 hover:bg-white'
+                    }`}
+                  >
+                    <span
+                      className={`text-[11px] font-medium ${
+                        isSelected
+                          ? 'text-amber-300'
+                          : isTomorrow
+                          ? 'text-amber-700'
+                          : 'text-stone-500'
+                      }`}
+                    >
+                      {chip.topLabel}
+                    </span>
+                    <span className="mt-0.5 text-lg font-bold tabular-nums leading-tight">
+                      {chip.dayNum}
+                    </span>
+                    <span
+                      className={`text-[11px] ${
+                        isSelected ? 'text-stone-300' : 'text-stone-500'
+                      }`}
+                    >
+                      {chip.monthShort}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      </div>
+
+      {/* Left Column in RTL: Step 2 Time Slots + Step 3 Booking Form */}
+      <div className="space-y-6 lg:col-span-7">
+        {/* Step 2: Available Time Slots */}
+        <section className="rounded-3xl border border-stone-200 bg-white p-5 sm:p-6">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="font-display text-lg font-bold text-stone-900">
+              2. בחירת שעה פנויה
+            </h2>
+            {!slotsLoading && selectedDate && (
+              <span className="text-xs text-stone-500 tabular-nums">
+                {availableSlots.length > 0
+                  ? `${availableSlots.length} שעות פנויות`
+                  : 'אין שעות פנויות'}
+              </span>
+            )}
+          </div>
+
+          {slotsError && (
+            <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+              {slotsError}
+            </div>
+          )}
+
+          {slotsLoading ? (
+            <div className="mt-4 grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="h-12 animate-pulse rounded-xl bg-stone-100"
+                />
+              ))}
+            </div>
+          ) : availableSlots.length === 0 ? (
+            <div className="mt-4 rounded-2xl border border-stone-200 bg-stone-50 p-6 text-center">
+              <Clock className="mx-auto h-7 w-7 text-stone-400" />
+              <p className="mt-2 text-sm font-semibold text-stone-800">
+                לא נותרו שעות פנויות ליום זה
+              </p>
+              <p className="mt-1 text-xs text-stone-500">
+                כל השעות תפוסות או שכבר חלפו להיום.
+              </p>
+              {nextAvailableDate && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedDate(nextAvailableDate)}
+                  className="mt-4 inline-flex min-h-[44px] items-center gap-2 rounded-xl bg-stone-900 px-4 py-2 text-xs font-semibold text-white hover:bg-stone-800"
+                >
+                  <Calendar className="h-4 w-4" />
+                  <span>מעבר ליום הפתוח הבא ({formatHebrewFullDate(nextAvailableDate)})</span>
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="mt-4 grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5">
+              {availableSlots.map((slot) => {
+                const isSelected = selectedSlot === slot;
+                return (
+                  <button
+                    key={slot}
+                    type="button"
+                    onClick={() => setSelectedSlot(slot)}
+                    aria-pressed={isSelected}
+                    className={`flex min-h-[46px] items-center justify-center rounded-xl border text-sm font-semibold tabular-nums transition-all active:scale-[0.97] ${
+                      isSelected
+                        ? 'border-stone-900 bg-stone-900 text-white shadow-sm'
+                        : 'border-stone-200 bg-white text-stone-800 hover:border-stone-400 hover:bg-stone-50'
+                    }`}
+                  >
+                    {slot}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
+        {/* Step 3: Customer Details Form */}
+        <section className="rounded-3xl border border-stone-200 bg-white p-5 sm:p-6">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="font-display text-lg font-bold text-stone-900">
+              3. פרטים לסיום ההזמנה
+            </h2>
+            {selectedDate && selectedSlot && (
+              <span className="text-xs font-semibold text-amber-800 tabular-nums">
+                {formatHebrewFullDate(selectedDate)} · שעה {selectedSlot}
+              </span>
+            )}
+          </div>
+
+          <form onSubmit={handleSubmit} className="mt-4 space-y-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <label
+                  htmlFor="customer-name"
+                  className="mb-1.5 block text-sm font-medium text-stone-700"
+                >
+                  שם מלא
+                </label>
+                <div className="relative">
+                  <User className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400" />
+                  <input
+                    id="customer-name"
+                    type="text"
+                    required
+                    value={customerName}
+                    onChange={(e) => setCustomerName(e.target.value)}
+                    placeholder="ישראל ישראלי"
+                    autoComplete="name"
+                    className="h-12 w-full rounded-xl border border-stone-300 bg-white pr-10 pl-3.5 text-sm text-stone-900 placeholder:text-stone-400 focus:border-stone-900 focus:outline-none focus:ring-2 focus:ring-stone-900/10"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label
+                  htmlFor="customer-phone"
+                  className="mb-1.5 block text-sm font-medium text-stone-700"
+                >
+                  מספר טלפון נייד
+                </label>
+                <div className="relative">
+                  <Phone className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400" />
+                  <input
+                    id="customer-phone"
+                    type="tel"
+                    inputMode="tel"
+                    required
+                    dir="ltr"
+                    value={customerPhone}
+                    onChange={(e) => setCustomerPhone(e.target.value)}
+                    placeholder="050-1234567"
+                    autoComplete="tel"
+                    className="h-12 w-full rounded-xl border border-stone-300 bg-white pr-10 pl-3.5 text-right text-sm tabular-nums text-stone-900 placeholder:text-stone-400 focus:border-stone-900 focus:outline-none focus:ring-2 focus:ring-stone-900/10"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {formError && (
+              <div
+                role="alert"
+                className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
+              >
+                {formError}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={submitting || !selectedSlot || !selectedDate}
+              className="flex min-h-[50px] w-full items-center justify-center gap-2 rounded-xl bg-stone-900 px-6 py-3 text-sm font-semibold text-white transition-all hover:bg-stone-800 active:scale-[0.99] disabled:cursor-not-allowed disabled:bg-stone-300 disabled:text-stone-500"
+            >
+              {submitting ? (
+                <span>שומר את התור...</span>
+              ) : selectedSlot ? (
+                <span>
+                  אישור וקביעת תור לשעה <span className="tabular-nums">{selectedSlot}</span>
+                </span>
+              ) : (
+                <span>בחר שעה כדי להמשיך</span>
+              )}
+            </button>
+          </form>
+        </section>
+      </div>
+    </div>
+  );
+}
