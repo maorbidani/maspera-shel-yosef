@@ -30,6 +30,7 @@ import {
 } from '../lib/supabase';
 import {
   BARBERSHOP_MEDIA,
+  BARBERSHOP_PRICES,
   type Appointment,
   type BarbershopSettings,
 } from '../types';
@@ -411,6 +412,24 @@ export function CustomerBooking({
                 <dt className="text-stone-600">שבת</dt>
                 <dd className="text-stone-500">סגור</dd>
               </div>
+            </dl>
+          </div>
+
+          {/* Price List */}
+          <div className="border-b border-stone-100 px-5 py-4">
+            <h2 className="text-xs font-bold text-stone-500">מחירון</h2>
+            <dl className="mt-2.5 space-y-2 text-sm">
+              {BARBERSHOP_PRICES.map((item) => (
+                <div
+                  key={item.service}
+                  className="flex items-center justify-between gap-4"
+                >
+                  <dt className="text-stone-700">{item.service}</dt>
+                  <dd className="font-bold tabular-nums text-stone-900" dir="ltr">
+                    {item.price}
+                  </dd>
+                </div>
+              ))}
             </dl>
           </div>
 

@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { AlertCircle, Check, Copy, MessageCircle, Scissors } from 'lucide-react';
 import { BarberAdmin } from './components/BarberAdmin';
 import { BarberAuthGate } from './components/BarberAuthGate';
 import { CustomerBooking } from './components/CustomerBooking';
+import { PWAInstallButton } from './components/PWAInstallButton';
 import { buildWhatsAppUrl } from './lib/dateUtils';
 import {
   fetchBarbershopSettings,
@@ -20,10 +21,8 @@ function isBarberManageRoute(pathname: string): boolean {
 }
 
 export default function App() {
-  const isBarberRoute = useMemo(() => {
-    if (typeof window === 'undefined') return false;
-    return isBarberManageRoute(window.location.pathname);
-  }, []);
+  const isBarberRoute =
+    typeof window !== 'undefined' ? isBarberManageRoute(window.location.pathname) : false;
 
   const [settings, setSettings] = useState<BarbershopSettings>(DEFAULT_SETTINGS);
   const [settingsLoading, setSettingsLoading] = useState<boolean>(true);
@@ -159,7 +158,7 @@ export default function App() {
           </div>
 
           {isBarberRoute ? (
-            <div className="flex items-center gap-3 shrink-0">
+            <div className="flex items-center gap-2 sm:gap-3 shrink-0">
               <span className="hidden sm:inline text-xs font-semibold text-stone-500 whitespace-nowrap">
                 ממשק ניהול ספר
               </span>
@@ -171,12 +170,12 @@ export default function App() {
                 {copiedCustomerLink ? (
                   <>
                     <Check className="h-3.5 w-3.5 text-emerald-700" />
-                    <span>הקישור ללקוחות הועתק</span>
+                    <span>הקישור הועתק</span>
                   </>
                 ) : (
                   <>
                     <Copy className="h-3.5 w-3.5" />
-                    <span>העתק קישור ללקוחות</span>
+                    <span>קישור ללקוחות</span>
                   </>
                 )}
               </button>
@@ -199,7 +198,12 @@ export default function App() {
       </header>
 
       {/* Main Content */}
-      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-5 sm:px-6 sm:py-8">
+      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-4 sm:px-6 sm:py-7">
+        {/* PWA Install Prompt Action Row (Hidden automatically when already installed in standalone mode) */}
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2 empty:hidden">
+          <PWAInstallButton />
+        </div>
+
         {!isSupabaseConfigured && (
           <div className="mb-5 flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
             <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />

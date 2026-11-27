@@ -56,7 +56,6 @@ export async function fetchBarbershopSettings(): Promise<BarbershopSettings> {
   }
 
   if (!data) {
-    // Seed initial row id=1 if missing
     try {
       const { data: seeded } = await supabase
         .from('barbershop_settings')
@@ -79,15 +78,25 @@ export async function fetchBarbershopSettings(): Promise<BarbershopSettings> {
     return DEFAULT_SETTINGS;
   }
 
-  // Auto-upgrade legacy initial placeholder row to the updated barbershop details
-  if (data.shop_name === 'המספרה של יוסף' && Number(data.slot_minutes) === 30) {
+  // Auto-upgrade legacy placeholder values (shop_name, slot_minutes, or placeholder phone 0500000000)
+  const needsLegacyNameUpgrade =
+    data.shop_name === 'המספרה של יוסף' && Number(data.slot_minutes) === 30;
+  const needsPhoneUpgrade = !data.phone || data.phone === '0500000000';
+
+  if (needsLegacyNameUpgrade || needsPhoneUpgrade) {
     const upgraded: BarbershopSettings = {
       id: 1,
-      shop_name: DEFAULT_SETTINGS.shop_name,
-      phone: data.phone || DEFAULT_SETTINGS.phone,
-      slot_minutes: DEFAULT_SETTINGS.slot_minutes,
+      shop_name: needsLegacyNameUpgrade
+        ? DEFAULT_SETTINGS.shop_name
+        : data.shop_name || DEFAULT_SETTINGS.shop_name,
+      phone: needsPhoneUpgrade ? DEFAULT_SETTINGS.phone : data.phone,
+      slot_minutes: needsLegacyNameUpgrade
+        ? DEFAULT_SETTINGS.slot_minutes
+        : Number(data.slot_minutes) || DEFAULT_SETTINGS.slot_minutes,
       days_ahead: Number(data.days_ahead) || DEFAULT_SETTINGS.days_ahead,
-      working_hours: DEFAULT_WORKING_HOURS,
+      working_hours: needsLegacyNameUpgrade
+        ? DEFAULT_WORKING_HOURS
+        : sanitizeWorkingHours(data.working_hours),
     };
     try {
       await supabase
@@ -220,6 +229,21 @@ export async function deleteAppointment(id: string): Promise<void> {
   }
 }
 
+export async function deleteAllAppointments(): Promise<void> {
+  if (!supabase) {
+    throw new Error('חיבור Supabase אינו מוגדר עדיין');
+  }
+
+  const { error } = await supabase
+    .from('appointments')
+    .delete()
+    .not('id', 'is', null);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
 export function subscribeToBarbershopChanges(
   onSettingsChange: () => void,
   onAppointmentsChange: () => void
@@ -247,4 +271,3 @@ export function subscribeToBarbershopChanges(
     void client.removeChannel(channel);
   };
 }
-

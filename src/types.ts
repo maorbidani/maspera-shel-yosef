@@ -80,6 +80,12 @@ export const BARBERSHOP_MEDIA = {
   ],
 } as const;
 
+export const BARBERSHOP_PRICES = [
+  { service: 'תספורת גבר / ילד', price: '40 ₪' },
+  { service: 'תספורת + זקן', price: '50 ₪' },
+  { service: 'שעווה (לכל אזור)', price: '5 ₪' },
+] as const;
+
 export const DEFAULT_WORKING_HOURS: WorkingHours = {
   '0': { open: true, start: '17:00', end: '21:00' },
   '1': { open: true, start: '17:00', end: '21:00' },
@@ -93,7 +99,7 @@ export const DEFAULT_WORKING_HOURS: WorkingHours = {
 export const DEFAULT_SETTINGS: BarbershopSettings = {
   id: 1,
   shop_name: 'מספרת גברים וילדים יוסף נחמני',
-  phone: '0500000000',
+  phone: '0527138795',
   slot_minutes: 25,
   days_ahead: 14,
   working_hours: DEFAULT_WORKING_HOURS,
