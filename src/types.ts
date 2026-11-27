@@ -58,6 +58,8 @@ export const BARBERSHOP_MEDIA = {
   ],
 } as const;
 
+export const BARBERSHOP_ADDRESS = 'היובל 36, נתיבות';
+
 export const BARBERSHOP_PRICES = [
   { service: 'תספורת גבר / ילד', price: '40 ₪' },
   { service: 'תספורת + זקן', price: '50 ₪' },

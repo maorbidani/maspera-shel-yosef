@@ -10,7 +10,12 @@ import {
   subscribeToBarbershopChanges,
   supabase,
 } from './lib/supabase';
-import { BARBERSHOP_MEDIA, DEFAULT_SETTINGS, type BarbershopSettings } from './types';
+import {
+  BARBERSHOP_ADDRESS,
+  BARBERSHOP_MEDIA,
+  DEFAULT_SETTINGS,
+  type BarbershopSettings,
+} from './types';
 
 export const BARBER_MANAGE_PATH = '/yosef-manage-7492';
 
@@ -290,7 +295,9 @@ export default function App() {
 
       <footer className="border-t border-stone-200 bg-white py-4 text-center text-xs text-stone-500">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2 px-4 sm:px-6">
-          <span>{settings.shop_name}</span>
+          <span>
+            {settings.shop_name} · {BARBERSHOP_ADDRESS}
+          </span>
           <a
             href={`tel:${settings.phone}`}
             className="hover:text-stone-900 tabular-nums"

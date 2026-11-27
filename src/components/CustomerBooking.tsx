@@ -4,6 +4,7 @@ import {
   CheckCircle2,
   Clock,
   Home,
+  MapPin,
   Phone,
   Scissors,
   User,
@@ -26,6 +27,7 @@ import {
   isSupabaseConfigured,
 } from '../lib/supabase';
 import {
+  BARBERSHOP_ADDRESS,
   BARBERSHOP_MEDIA,
   BARBERSHOP_PRICES,
   type Appointment,
@@ -236,14 +238,25 @@ export function CustomerBooking({
               <CheckCircle2 className="h-8 w-8" />
             </div>
             <h1 className="mt-4 text-2xl sm:text-3xl font-bold text-stone-900 text-balance">
-              התור שלך נקבע בהצלחה
+              קביעת התור נשמרה בהצלחה
             </h1>
             <p className="mt-1.5 text-sm text-stone-500">
               מחכים לך ב{settings.shop_name}
             </p>
+            <div className="mt-3 inline-flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-xs sm:text-sm font-semibold text-amber-900">
+              <Clock className="h-4 w-4 shrink-0 text-amber-700" />
+              <span>קביעת התור נשמרה — נא לא לאחר ולהגיע בזמן</span>
+            </div>
           </div>
 
           <div className="mt-6 divide-y divide-stone-100 rounded-2xl border border-stone-200 bg-stone-50/60 px-5">
+            <div className="flex items-center justify-between gap-4 py-3.5 text-sm">
+              <span className="text-stone-500">כתובת המספרה</span>
+              <span className="inline-flex items-center gap-1.5 font-semibold text-stone-900">
+                <MapPin className="h-4 w-4 shrink-0 text-amber-700" />
+                <span>{BARBERSHOP_ADDRESS}</span>
+              </span>
+            </div>
             <div className="flex items-center justify-between py-3.5 text-sm">
               <span className="text-stone-500">תאריך</span>
               <span className="font-semibold text-stone-900">{fullHebrewDate}</span>
@@ -290,11 +303,23 @@ export function CustomerBooking({
               className="flex min-h-[48px] w-full items-center justify-center gap-2.5 rounded-xl border border-stone-300 bg-white px-5 py-3 text-sm font-semibold text-stone-900 transition-colors hover:bg-stone-50 active:scale-[0.99]"
             >
               <Phone className="h-4 w-4 shrink-0 text-stone-700" />
-              <span>צריך שינוי? התקשר לספר</span>
+              <span>יצירת קשר עם הספר</span>
               <span className="tabular-nums text-stone-600" dir="ltr">
                 ({settings.phone})
               </span>
             </a>
+          </div>
+
+          <div className="mt-4 rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-center text-xs sm:text-sm text-stone-700 leading-relaxed">
+            במקרה של אי יכולת הגעה אל התור, נא לבטל את התור דרך{' '}
+            <a
+              href={`tel:${settings.phone}`}
+              onClick={() => setAutoReturnPaused(true)}
+              className="font-semibold text-stone-900 underline underline-offset-2 hover:text-amber-800"
+            >
+              יצירת קשר עם הספר ({settings.phone})
+            </a>
+            .
           </div>
 
           {!autoReturnPaused && autoReturnSeconds !== null && autoReturnSeconds > 0 && (
@@ -350,14 +375,19 @@ export function CustomerBooking({
                   {settings.shop_name}
                 </h1>
                 <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs sm:text-sm text-stone-200">
-                  <span>תור של {settings.slot_minutes} דקות</span>
+                  <span className="inline-flex items-center gap-1">
+                    <MapPin className="h-3.5 w-3.5 text-amber-400" />
+                    <span>{BARBERSHOP_ADDRESS}</span>
+                  </span>
                   <span aria-hidden="true">·</span>
-                  {selectedDayHours?.open ? (
-                    <span className="tabular-nums">
-                      פתוח {selectedDayHours.start}–{selectedDayHours.end}
-                    </span>
-                  ) : (
-                    <span>הזמנה אונליין מהירה</span>
+                  <span>תור של {settings.slot_minutes} דקות</span>
+                  {selectedDayHours?.open && (
+                    <>
+                      <span aria-hidden="true">·</span>
+                      <span className="tabular-nums">
+                        פתוח {selectedDayHours.start}–{selectedDayHours.end}
+                      </span>
+                    </>
                   )}
                 </div>
               </div>
@@ -448,6 +478,15 @@ export function CustomerBooking({
                 </div>
               ))}
             </dl>
+          </div>
+
+          {/* Barbershop Address */}
+          <div className="flex items-center justify-between gap-4 border-b border-stone-100 px-5 py-3.5 text-sm">
+            <span className="text-stone-600">כתובת המספרה</span>
+            <span className="inline-flex items-center gap-1.5 font-semibold text-stone-900">
+              <MapPin className="h-4 w-4 shrink-0 text-amber-700" />
+              <span>{BARBERSHOP_ADDRESS}</span>
+            </span>
           </div>
 
           <div className="flex items-center justify-between gap-4 px-5 py-3.5 text-sm">
