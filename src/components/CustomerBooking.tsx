@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Calendar,
   CalendarPlus,
   CheckCircle2,
   Clock,
+  Home,
   MessageCircle,
   Phone,
   Scissors,
@@ -63,6 +64,8 @@ export function CustomerBooking({
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [confirmedAppointment, setConfirmedAppointment] = useState<Appointment | null>(null);
+  const [autoReturnSeconds, setAutoReturnSeconds] = useState<number | null>(null);
+  const [autoReturnPaused, setAutoReturnPaused] = useState<boolean>(false);
 
   const [activePhotoIndex, setActivePhotoIndex] = useState<number>(0);
   const [failedPhotos, setFailedPhotos] = useState<Record<number, boolean>>({});
@@ -173,6 +176,8 @@ export function CustomerBooking({
         status: 'booked',
       });
       setConfirmedAppointment(created);
+      setAutoReturnPaused(false);
+      setAutoReturnSeconds(5);
       setBookedTimes((prev) => [...prev, created.start_time]);
     } catch (err) {
       setFormError(err instanceof Error ? err.message : 'אירעה שגיאה בקביעת התור.');
@@ -187,13 +192,41 @@ export function CustomerBooking({
     }
   }
 
-  function handleResetBooking() {
+  const handleReturnHome = useCallback(() => {
     setConfirmedAppointment(null);
+    setSelectedDate(openDates[0] ?? '');
     setSelectedSlot('');
     setCustomerName('');
     setCustomerPhone('');
     setFormError(null);
-  }
+    setAutoReturnSeconds(null);
+    setAutoReturnPaused(false);
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  }, [openDates]);
+
+  useEffect(() => {
+    if (!confirmedAppointment || autoReturnPaused) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      setAutoReturnSeconds((prev) => {
+        if (prev === null) return null;
+        if (prev <= 1) {
+          window.clearInterval(timer);
+          handleReturnHome();
+          return null;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [confirmedAppointment, autoReturnPaused, handleReturnHome]);
 
   if (confirmedAppointment) {
     const confirmedTimeShort = confirmedAppointment.start_time.slice(0, 5);
@@ -261,6 +294,7 @@ export function CustomerBooking({
               href={whatsappHref}
               target="_blank"
               rel="noopener noreferrer"
+              onClick={() => setAutoReturnPaused(true)}
               className="flex min-h-[48px] w-full items-center justify-center gap-2.5 rounded-xl bg-emerald-700 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-800 active:scale-[0.99]"
             >
               <MessageCircle className="h-5 w-5 shrink-0" />
@@ -271,20 +305,28 @@ export function CustomerBooking({
               href={googleCalendarHref}
               target="_blank"
               rel="noopener noreferrer"
+              onClick={() => setAutoReturnPaused(true)}
               className="flex min-h-[48px] w-full items-center justify-center gap-2.5 rounded-xl border border-stone-300 bg-white px-5 py-3 text-sm font-semibold text-stone-900 transition-colors hover:bg-stone-50 active:scale-[0.99]"
             >
               <CalendarPlus className="h-5 w-5 shrink-0 text-stone-700" />
               <span>הוסף ליומן Google</span>
             </a>
+
+            <button
+              type="button"
+              onClick={handleReturnHome}
+              className="mt-1 flex min-h-[50px] w-full items-center justify-center gap-2.5 rounded-xl bg-stone-900 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-stone-800 active:scale-[0.99]"
+            >
+              <Home className="h-5 w-5 shrink-0" />
+              <span>חזרה לדף הבית</span>
+            </button>
           </div>
 
-          <button
-            type="button"
-            onClick={handleResetBooking}
-            className="mt-5 flex min-h-[44px] w-full items-center justify-center rounded-xl text-sm font-medium text-stone-600 transition-colors hover:bg-stone-100 hover:text-stone-900"
-          >
-            קביעת תור נוסף
-          </button>
+          {!autoReturnPaused && autoReturnSeconds !== null && autoReturnSeconds > 0 && (
+            <p className="mt-3 text-center text-xs text-stone-500 tabular-nums">
+              מועבר אוטומטית לדף הבית בעוד {autoReturnSeconds} שניות...
+            </p>
+          )}
         </div>
       </section>
     );
