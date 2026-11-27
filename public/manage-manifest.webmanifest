@@ -1,0 +1,33 @@
+{
+  "id": "/yosef-manage-7492",
+  "name": "ניהול מספרת יוסף",
+  "short_name": "ניהול מספרת יוסף",
+  "description": "ממשק ניהול יומן ותורים למספרת גברים וילדים יוסף נחמני",
+  "lang": "he",
+  "dir": "rtl",
+  "theme_color": "#1c1917",
+  "background_color": "#fafaf9",
+  "display": "standalone",
+  "start_url": "/yosef-manage-7492",
+  "scope": "/yosef-manage-7492",
+  "icons": [
+    {
+      "src": "/pwa-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-maskable-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

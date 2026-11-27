@@ -1,19 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Calendar,
-  CalendarPlus,
   CheckCircle2,
   Clock,
   Home,
-  MessageCircle,
   Phone,
   Scissors,
   User,
 } from 'lucide-react';
 import {
   addDaysToDateStr,
-  buildGoogleCalendarUrl,
-  buildWhatsAppUrl,
   formatHebrewDayChip,
   formatHebrewFullDate,
   generateAvailableSlots,
@@ -161,7 +157,7 @@ export function CustomerBooking({
       return;
     }
     if (!isValidIsraeliPhone(customerPhone)) {
-      setFormError('יש להזין מספר טלפון ישראלי תקין (למשל 050-1234567).');
+      setFormError('יש להזין מספר טלפון ישראלי תקין (למשל 052-7138795).');
       return;
     }
 
@@ -231,17 +227,6 @@ export function CustomerBooking({
   if (confirmedAppointment) {
     const confirmedTimeShort = confirmedAppointment.start_time.slice(0, 5);
     const fullHebrewDate = formatHebrewFullDate(confirmedAppointment.appointment_date);
-    const googleCalendarHref = buildGoogleCalendarUrl({
-      title: `תספורת — ${settings.shop_name}`,
-      dateStr: confirmedAppointment.appointment_date,
-      startTimeHHMM: confirmedTimeShort,
-      durationMinutes: settings.slot_minutes,
-      details: `תור שנקבע עבור ${confirmedAppointment.customer_name} (${confirmedAppointment.customer_phone})`,
-      location: settings.shop_name,
-    });
-
-    const barberConfirmMsg = `שלום, קבעתי תור ב${settings.shop_name}\nתאריך: ${fullHebrewDate}\nשעה: ${confirmedTimeShort}\nשם: ${confirmedAppointment.customer_name}\nטלפון: ${confirmedAppointment.customer_phone}`;
-    const whatsappHref = buildWhatsAppUrl(settings.phone, barberConfirmMsg);
 
     return (
       <section className="mx-auto max-w-xl py-4 sm:py-8">
@@ -290,36 +275,26 @@ export function CustomerBooking({
           </div>
 
           <div className="mt-6 flex flex-col gap-3">
-            <a
-              href={whatsappHref}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={() => setAutoReturnPaused(true)}
-              className="flex min-h-[48px] w-full items-center justify-center gap-2.5 rounded-xl bg-emerald-700 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-800 active:scale-[0.99]"
-            >
-              <MessageCircle className="h-5 w-5 shrink-0" />
-              <span>שלח אישור בוואטסאפ לספר</span>
-            </a>
-
-            <a
-              href={googleCalendarHref}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={() => setAutoReturnPaused(true)}
-              className="flex min-h-[48px] w-full items-center justify-center gap-2.5 rounded-xl border border-stone-300 bg-white px-5 py-3 text-sm font-semibold text-stone-900 transition-colors hover:bg-stone-50 active:scale-[0.99]"
-            >
-              <CalendarPlus className="h-5 w-5 shrink-0 text-stone-700" />
-              <span>הוסף ליומן Google</span>
-            </a>
-
             <button
               type="button"
               onClick={handleReturnHome}
-              className="mt-1 flex min-h-[50px] w-full items-center justify-center gap-2.5 rounded-xl bg-stone-900 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-stone-800 active:scale-[0.99]"
+              className="flex min-h-[50px] w-full items-center justify-center gap-2.5 rounded-xl bg-stone-900 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-stone-800 active:scale-[0.99]"
             >
               <Home className="h-5 w-5 shrink-0" />
               <span>חזרה לדף הבית</span>
             </button>
+
+            <a
+              href={`tel:${settings.phone}`}
+              onClick={() => setAutoReturnPaused(true)}
+              className="flex min-h-[48px] w-full items-center justify-center gap-2.5 rounded-xl border border-stone-300 bg-white px-5 py-3 text-sm font-semibold text-stone-900 transition-colors hover:bg-stone-50 active:scale-[0.99]"
+            >
+              <Phone className="h-4 w-4 shrink-0 text-stone-700" />
+              <span>צריך שינוי? התקשר לספר</span>
+              <span className="tabular-nums text-stone-600" dir="ltr">
+                ({settings.phone})
+              </span>
+            </a>
           </div>
 
           {!autoReturnPaused && autoReturnSeconds !== null && autoReturnSeconds > 0 && (
@@ -336,7 +311,7 @@ export function CustomerBooking({
 
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-12 lg:items-start">
-      {/* Right Column in RTL: Shop Hero + Gallery + Opening Hours + Step 1 Date Picker */}
+      {/* Right Column in RTL: Shop Hero + Gallery + Opening Hours + Price List + Step 1 Date Picker */}
       <div className="space-y-6 lg:col-span-5">
         <div className="overflow-hidden rounded-3xl border border-stone-200 bg-white">
           <div className="relative aspect-[16/10] w-full bg-stone-900">
@@ -476,30 +451,17 @@ export function CustomerBooking({
           </div>
 
           <div className="flex items-center justify-between gap-4 px-5 py-3.5 text-sm">
-            <span className="text-stone-600">שאלות או תיאום מהיר</span>
-            <div className="flex items-center gap-3">
-              <a
-                href={`tel:${settings.phone}`}
-                className="inline-flex min-h-[40px] items-center gap-1.5 text-sm font-medium text-stone-700 hover:text-stone-900 whitespace-nowrap"
-              >
-                <Phone className="h-4 w-4" />
-                <span className="tabular-nums" dir="ltr">
-                  {settings.phone}
-                </span>
-              </a>
-              <a
-                href={buildWhatsAppUrl(
-                  settings.phone,
-                  `שלום, אשמח לפרטים לגבי תור ב${settings.shop_name}`
-                )}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg bg-stone-100 px-3 py-1.5 text-xs font-semibold text-stone-900 hover:bg-stone-200 whitespace-nowrap"
-              >
-                <MessageCircle className="h-4 w-4 text-emerald-700" />
-                <span>וואטסאפ</span>
-              </a>
-            </div>
+            <span className="text-stone-600">יצירת קשר טלפונית</span>
+            <a
+              href={`tel:${settings.phone}`}
+              className="inline-flex min-h-[40px] items-center gap-2 rounded-xl bg-stone-100 px-3.5 py-1.5 text-sm font-semibold text-stone-900 hover:bg-stone-200 whitespace-nowrap"
+            >
+              <Phone className="h-4 w-4 text-stone-700" />
+              <span>התקשר לספר</span>
+              <span className="tabular-nums text-stone-600" dir="ltr">
+                {settings.phone}
+              </span>
+            </a>
           </div>
         </div>
 
@@ -624,7 +586,10 @@ export function CustomerBooking({
               {nextAvailableDate && (
                 <button
                   type="button"
-                  onClick={() => setSelectedDate(nextAvailableDate)}
+                  onClick={() => {
+                    setSelectedDate(nextAvailableDate);
+                    setSelectedSlot('');
+                  }}
                   className="mt-4 inline-flex min-h-[44px] items-center gap-2 rounded-xl bg-stone-900 px-4 py-2 text-xs font-semibold text-white hover:bg-stone-800"
                 >
                   <Calendar className="h-4 w-4" />

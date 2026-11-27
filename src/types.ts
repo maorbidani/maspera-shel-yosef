@@ -40,28 +40,6 @@ export interface NewAppointmentInput {
   status?: AppointmentStatus;
 }
 
-export interface ReminderDispatchLog {
-  appointmentId: string;
-  customerName: string;
-  customerPhone: string;
-  appointmentDate: string;
-  startTime: string;
-  sentAt: string;
-  method: 'auto_webhook' | 'manual_whatsapp';
-}
-
-export interface ReminderAutomationStatus {
-  gatewayConfigured: boolean;
-  supabaseConfigured: boolean;
-  autoEnabled: boolean;
-  sendHour: string; // "HH:MM"
-  template: string;
-  lastRunAt: string | null;
-  lastRunSummary: string | null;
-  sentIds: string[];
-  logs: ReminderDispatchLog[];
-}
-
 export const BARBERSHOP_MEDIA = {
   logo: '/assets/aistudio/IMG-20261127-WA0006_ce558cab.jpg',
   gallery: [

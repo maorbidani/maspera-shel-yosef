@@ -9,7 +9,7 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <meta name="apple-mobile-web-app-title" content="יוסף נחמני" />
+    <meta name="apple-mobile-web-app-title" content="מספרת יוסף נחמני" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="icon" type="image/png" href="/pwa-192x192.png" />
     <meta property="og:title" content="מספרת גברים וילדים יוסף נחמני — זימון וניהול תורים" />
@@ -24,6 +24,25 @@
     />
   </head>
   <body class="bg-stone-50 text-stone-900 antialiased selection:bg-amber-200 selection:text-stone-900">
+    <script>
+      (function () {
+        var path = window.location.pathname.replace(/\/+$/, '') || '/';
+        if (path === '/yosef-manage-7492') {
+          var link = document.querySelector('link[rel="manifest"]');
+          if (!link) {
+            link = document.createElement('link');
+            link.rel = 'manifest';
+            document.head.appendChild(link);
+          }
+          link.setAttribute('href', '/manage-manifest.webmanifest');
+          document.title = 'ניהול מספרת יוסף';
+          var appleTitle = document.querySelector('meta[name="apple-mobile-web-app-title"]');
+          if (appleTitle) {
+            appleTitle.setAttribute('content', 'ניהול מספרת יוסף');
+          }
+        }
+      })();
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

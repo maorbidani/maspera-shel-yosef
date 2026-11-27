@@ -1,26 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
-  Bell,
   Calendar,
-  Check,
   ChevronLeft,
   ChevronRight,
   Clock,
   LogOut,
-  MessageCircle,
   Phone,
   Plus,
-  Send,
   Settings,
   Trash2,
   X,
 } from 'lucide-react';
 import {
   addDaysToDateStr,
-  buildWhatsAppUrl,
   formatHebrewFullDate,
-  formatReminderMessage,
   generateAllDaySlots,
   isValidIsraeliPhone,
   normalizeSlotHHMM,
@@ -41,14 +35,12 @@ import {
   type Appointment,
   type BarbershopSettings,
   type DayKey,
-  type ReminderAutomationStatus,
 } from '../types';
 
-type AdminTab = 'appointments' | 'reminders' | 'settings';
+type AdminTab = 'appointments' | 'settings';
 type ResetModalStep = 'warning' | 'final' | null;
 
 interface BarberAdminProps {
-  adminToken: string;
   settings: BarbershopSettings;
   appointmentsVersion: number;
   onSettingsUpdated: (next: BarbershopSettings) => void;
@@ -56,7 +48,6 @@ interface BarberAdminProps {
 }
 
 export function BarberAdmin({
-  adminToken,
   settings,
   appointmentsVersion,
   onSettingsUpdated,
@@ -106,19 +97,6 @@ export function BarberAdmin({
     text: string;
   } | null>(null);
 
-  // --- Reminders tab state ---
-  const [tomorrowAppointments, setTomorrowAppointments] = useState<Appointment[]>([]);
-  const [loadingTomorrow, setLoadingTomorrow] = useState<boolean>(false);
-  const [reminderStatus, setReminderStatus] = useState<ReminderAutomationStatus | null>(null);
-  const [reminderTemplate, setReminderTemplate] = useState<string>(
-    'שלום {name}, תזכורת לתור שלך מחר ב{shop} בשעה {time}. נתראה!'
-  );
-  const [autoEnabled, setAutoEnabled] = useState<boolean>(true);
-  const [sendHour, setSendHour] = useState<string>('18:00');
-  const [savingReminderCfg, setSavingReminderCfg] = useState<boolean>(false);
-  const [runningReminders, setRunningReminders] = useState<boolean>(false);
-  const [reminderFeedback, setReminderFeedback] = useState<string | null>(null);
-
   useEffect(() => {
     setDraftSettings(settings);
     setIdentityName(settings.shop_name);
@@ -146,40 +124,6 @@ export function BarberAdmin({
       void loadAppointments(selectedDate);
     }
   }, [activeTab, selectedDate, appointmentsVersion, loadAppointments]);
-
-  const loadRemindersData = useCallback(async () => {
-    setLoadingTomorrow(true);
-    try {
-      const [apts, statusRes] = await Promise.all([
-        fetchAppointmentsByDate(tomorrowStr),
-        fetch('/api/admin/reminders/status', {
-          headers: { Authorization: `Bearer ${adminToken}` },
-        }),
-      ]);
-      setTomorrowAppointments(apts);
-      if (statusRes.status === 401) {
-        onLogout();
-        return;
-      }
-      if (statusRes.ok) {
-        const statusData = (await statusRes.json()) as ReminderAutomationStatus;
-        setReminderStatus(statusData);
-        setAutoEnabled(statusData.autoEnabled);
-        setSendHour(statusData.sendHour);
-        setReminderTemplate(statusData.template);
-      }
-    } catch {
-      // ignore transient error
-    } finally {
-      setLoadingTomorrow(false);
-    }
-  }, [tomorrowStr, adminToken, onLogout]);
-
-  useEffect(() => {
-    if (activeTab === 'reminders') {
-      void loadRemindersData();
-    }
-  }, [activeTab, appointmentsVersion, loadRemindersData]);
 
   const manualSlotOptions = useMemo(() => {
     const allSlots = generateAllDaySlots(
@@ -215,7 +159,6 @@ export function BarberAdmin({
     try {
       await deleteAllAppointments();
       setAppointments([]);
-      setTomorrowAppointments([]);
       setResetModalStep(null);
       setResetConfirmedCheck(false);
       setAppointmentsSuccess('כל התורים אופסו ונמחקו מ-Supabase בהצלחה.');
@@ -341,123 +284,6 @@ export function BarberAdmin({
     }
   }
 
-  async function handleSaveReminderConfig() {
-    setSavingReminderCfg(true);
-    setReminderFeedback(null);
-    try {
-      const res = await fetch('/api/admin/reminders/settings', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${adminToken}`,
-        },
-        body: JSON.stringify({
-          autoEnabled,
-          sendHour,
-          template: reminderTemplate,
-        }),
-      });
-      if (res.status === 401) {
-        onLogout();
-        return;
-      }
-      if (res.ok) {
-        setReminderFeedback('הגדרות התזכורות האוטומטיות עודכנו.');
-      }
-    } catch {
-      setReminderFeedback('שגיאה בעדכון הגדרות התזכורות.');
-    } finally {
-      setSavingReminderCfg(false);
-    }
-  }
-
-  async function handleRunRemindersNow() {
-    setRunningReminders(true);
-    setReminderFeedback(null);
-    try {
-      const res = await fetch('/api/admin/reminders/run', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${adminToken}`,
-        },
-      });
-      if (res.status === 401) {
-        onLogout();
-        return;
-      }
-      const data = (await res.json()) as {
-        summary?: string;
-        sentIds?: string[];
-        logs?: ReminderAutomationStatus['logs'];
-      };
-      if (data.summary) {
-        setReminderFeedback(data.summary);
-      }
-      setReminderStatus((prev) =>
-        prev
-          ? {
-              ...prev,
-              sentIds: data.sentIds ?? prev.sentIds,
-              logs: data.logs ?? prev.logs,
-              lastRunAt: new Date().toISOString(),
-              lastRunSummary: data.summary ?? prev.lastRunSummary,
-            }
-          : prev
-      );
-    } catch {
-      setReminderFeedback('שגיאה בהפעלת מנגנון התזכורות.');
-    } finally {
-      setRunningReminders(false);
-    }
-  }
-
-  async function handleMarkReminderSent(apt: Appointment) {
-    try {
-      const res = await fetch('/api/admin/reminders/mark-sent', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${adminToken}`,
-        },
-        body: JSON.stringify({
-          appointmentId: apt.id,
-          customerName: apt.customer_name,
-          customerPhone: apt.customer_phone,
-          appointmentDate: apt.appointment_date,
-          startTime: apt.start_time,
-        }),
-      });
-      if (res.ok) {
-        const data = (await res.json()) as {
-          sentIds: string[];
-          logs: ReminderAutomationStatus['logs'];
-        };
-        setReminderStatus((prev) =>
-          prev
-            ? { ...prev, sentIds: data.sentIds, logs: data.logs }
-            : {
-                gatewayConfigured: false,
-                supabaseConfigured: isSupabaseConfigured,
-                autoEnabled,
-                sendHour,
-                template: reminderTemplate,
-                lastRunAt: null,
-                lastRunSummary: null,
-                sentIds: data.sentIds,
-                logs: data.logs,
-              }
-        );
-      }
-    } catch {
-      // ignore error
-    }
-  }
-
-  const sentIdsSet = useMemo(
-    () => new Set(reminderStatus?.sentIds ?? []),
-    [reminderStatus?.sentIds]
-  );
-
   return (
     <div className="space-y-5">
       {/* Workspace Header Bar */}
@@ -482,15 +308,15 @@ export function BarberAdmin({
         </button>
       </div>
 
-      {/* Full-Width 3-Tab Switcher (No horizontal clipping on RTL mobile) */}
+      {/* 2-Tab Switcher */}
       <nav
         aria-label="לשוניות ניהול"
-        className="grid grid-cols-3 gap-1.5 rounded-2xl border border-stone-200 bg-white p-1.5"
+        className="grid grid-cols-2 gap-1.5 rounded-2xl border border-stone-200 bg-white p-1.5"
       >
         <button
           type="button"
           onClick={() => setActiveTab('appointments')}
-          className={`flex min-h-[48px] flex-col items-center justify-center gap-1 rounded-xl px-2 py-2 text-center text-[11px] sm:flex-row sm:gap-2 sm:px-3 sm:text-sm font-semibold leading-tight transition-colors ${
+          className={`flex min-h-[48px] items-center justify-center gap-2 rounded-xl px-3 py-2 text-xs sm:text-sm font-semibold transition-colors ${
             activeTab === 'appointments'
               ? 'bg-stone-900 text-white'
               : 'text-stone-600 hover:bg-stone-100 hover:text-stone-900'
@@ -502,21 +328,8 @@ export function BarberAdmin({
 
         <button
           type="button"
-          onClick={() => setActiveTab('reminders')}
-          className={`flex min-h-[48px] flex-col items-center justify-center gap-1 rounded-xl px-2 py-2 text-center text-[11px] sm:flex-row sm:gap-2 sm:px-3 sm:text-sm font-semibold leading-tight transition-colors ${
-            activeTab === 'reminders'
-              ? 'bg-stone-900 text-white'
-              : 'text-stone-600 hover:bg-stone-100 hover:text-stone-900'
-          }`}
-        >
-          <Bell className="h-4 w-4 shrink-0" />
-          <span>תזכורות WhatsApp</span>
-        </button>
-
-        <button
-          type="button"
           onClick={() => setActiveTab('settings')}
-          className={`flex min-h-[48px] flex-col items-center justify-center gap-1 rounded-xl px-2 py-2 text-center text-[11px] sm:flex-row sm:gap-2 sm:px-3 sm:text-sm font-semibold leading-tight transition-colors ${
+          className={`flex min-h-[48px] items-center justify-center gap-2 rounded-xl px-3 py-2 text-xs sm:text-sm font-semibold transition-colors ${
             activeTab === 'settings'
               ? 'bg-stone-900 text-white'
               : 'text-stone-600 hover:bg-stone-100 hover:text-stone-900'
@@ -784,29 +597,14 @@ export function BarberAdmin({
                               {apt.source === 'manual' ? 'הזנה ידנית' : 'הזמנה מהאתר'}
                             </span>
                           </div>
-                          <div className="mt-1 flex items-center gap-3 text-sm text-stone-600">
+                          <div className="mt-1 flex items-center text-sm text-stone-600">
                             <a
                               href={`tel:${apt.customer_phone}`}
-                              className="inline-flex items-center gap-1 hover:text-stone-900 tabular-nums"
+                              className="inline-flex items-center gap-1.5 font-medium text-stone-700 hover:text-stone-900 tabular-nums"
                               dir="ltr"
                             >
-                              <Phone className="h-3.5 w-3.5" />
+                              <Phone className="h-3.5 w-3.5 text-stone-500" />
                               <span>{apt.customer_phone}</span>
-                            </a>
-                            <span className="text-stone-300" aria-hidden="true">
-                              ·
-                            </span>
-                            <a
-                              href={buildWhatsAppUrl(
-                                apt.customer_phone,
-                                `שלום ${apt.customer_name}, הודעה מ${settings.shop_name} לגבי התור שלך בתאריך ${formatHebrewFullDate(apt.appointment_date)} בשעה ${timeShort}.`
-                              )}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 hover:text-emerald-800"
-                            >
-                              <MessageCircle className="h-3.5 w-3.5" />
-                              <span>WhatsApp</span>
                             </a>
                           </div>
                         </div>
@@ -852,212 +650,7 @@ export function BarberAdmin({
         </div>
       )}
 
-      {/* TAB 2: AUTOMATIC WHATSAPP REMINDERS */}
-      {activeTab === 'reminders' && (
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-12 lg:items-start">
-          <section className="rounded-3xl border border-stone-200 bg-white p-5 sm:p-6 lg:col-span-5">
-            <h2 className="font-display text-lg font-bold text-stone-900">
-              תזכורות אוטומטיות יום לפני התור
-            </h2>
-            <p className="mt-1 text-sm text-stone-500">
-              המערכת בודקת מדי יום את התורים למחר ומכינה או שולחת תזכורות ללקוחות ב-WhatsApp.
-            </p>
-
-            <div className="mt-5 space-y-4">
-              <div className="flex items-center justify-between rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3">
-                <div>
-                  <p className="text-sm font-semibold text-stone-900">
-                    תזמון שליחה אוטומטי
-                  </p>
-                  <p className="text-xs text-stone-500">
-                    {reminderStatus?.gatewayConfigured
-                      ? 'שער WhatsApp API מחובר ומופעל בשרת'
-                      : 'מצב שליחה מהירה בלחיצה (ללא שער API חיצוני)'}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={autoEnabled}
-                  onClick={() => setAutoEnabled((v) => !v)}
-                  className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors ${
-                    autoEnabled ? 'bg-stone-900' : 'bg-stone-300'
-                  }`}
-                >
-                  <span
-                    className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
-                      autoEnabled ? '-translate-x-6' : '-translate-x-1'
-                    }`}
-                  />
-                </button>
-              </div>
-
-              <div>
-                <label className="mb-1.5 block text-xs font-semibold text-stone-600">
-                  שעת שליחה קבועה (יום לפני התור)
-                </label>
-                <input
-                  type="time"
-                  value={sendHour}
-                  onChange={(e) => setSendHour(e.target.value)}
-                  className="h-11 w-full rounded-xl border border-stone-300 bg-white px-3 text-sm tabular-nums text-stone-900 focus:border-stone-900 focus:outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="mb-1.5 block text-xs font-semibold text-stone-600">
-                  נוסח הודעת התזכורת
-                </label>
-                <textarea
-                  rows={3}
-                  value={reminderTemplate}
-                  onChange={(e) => setReminderTemplate(e.target.value)}
-                  className="w-full rounded-xl border border-stone-300 bg-white p-3 text-sm text-stone-900 focus:border-stone-900 focus:outline-none"
-                />
-                <p className="mt-1 text-xs text-stone-400">
-                  משתנים זמינים: {'{name}'} · {'{shop}'} · {'{time}'} · {'{date}'}
-                </p>
-              </div>
-
-              {reminderFeedback && (
-                <div className="rounded-xl border border-stone-200 bg-stone-50 px-4 py-3 text-xs font-medium text-stone-800">
-                  {reminderFeedback}
-                </div>
-              )}
-
-              <div className="flex flex-col gap-2.5 pt-1">
-                <button
-                  type="button"
-                  disabled={savingReminderCfg}
-                  onClick={() => void handleSaveReminderConfig()}
-                  className="min-h-[44px] w-full rounded-xl border border-stone-300 bg-white px-4 py-2.5 text-sm font-semibold text-stone-900 hover:bg-stone-50 disabled:opacity-50"
-                >
-                  {savingReminderCfg ? 'שומר...' : 'שמור הגדרות תזכורת'}
-                </button>
-
-                <button
-                  type="button"
-                  disabled={runningReminders}
-                  onClick={() => void handleRunRemindersNow()}
-                  className="inline-flex min-h-[46px] w-full items-center justify-center gap-2 rounded-xl bg-stone-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-stone-800 disabled:opacity-50"
-                >
-                  <Send className="h-4 w-4" />
-                  <span>
-                    {runningReminders ? 'מריץ בדיקה ושליחה...' : 'הפעל סבב תזכורות למחר עכשיו'}
-                  </span>
-                </button>
-              </div>
-            </div>
-          </section>
-
-          <section className="rounded-3xl border border-stone-200 bg-white p-5 sm:p-6 lg:col-span-7">
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-stone-100 pb-4">
-              <div>
-                <h2 className="font-display text-lg font-bold text-stone-900">
-                  תורי מחר לתזכורת — {formatHebrewFullDate(tomorrowStr)}
-                </h2>
-                <p className="mt-0.5 text-xs text-stone-500 tabular-nums">
-                  {tomorrowAppointments.length} לקוחות מתוכננים למחר
-                </p>
-              </div>
-            </div>
-
-            {loadingTomorrow ? (
-              <div className="mt-4 space-y-3">
-                {Array.from({ length: 3 }).map((_, i) => (
-                  <div key={i} className="h-20 animate-pulse rounded-2xl bg-stone-100" />
-                ))}
-              </div>
-            ) : tomorrowAppointments.length === 0 ? (
-              <div className="py-12 text-center">
-                <Bell className="mx-auto h-8 w-8 text-stone-300" />
-                <p className="mt-2 text-sm font-semibold text-stone-800">
-                  אין תורים מוזמנים למחר
-                </p>
-                <p className="mt-1 text-xs text-stone-500">
-                  כשלקוחות יזמינו תור למחר, הם יופיעו כאן אוטומטית לשליחת תזכורת.
-                </p>
-              </div>
-            ) : (
-              <div className="mt-2 divide-y divide-stone-100">
-                {tomorrowAppointments.map((apt) => {
-                  const timeShort = normalizeSlotHHMM(apt.start_time);
-                  const alreadySent = sentIdsSet.has(apt.id);
-                  const msg = formatReminderMessage(reminderTemplate, {
-                    name: apt.customer_name,
-                    shop: settings.shop_name,
-                    time: timeShort,
-                    date: formatHebrewFullDate(apt.appointment_date),
-                  });
-                  const waHref = buildWhatsAppUrl(apt.customer_phone, msg);
-
-                  return (
-                    <div
-                      key={apt.id}
-                      className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between"
-                    >
-                      <div className="space-y-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-display text-base font-bold tabular-nums text-stone-900">
-                            {timeShort}
-                          </span>
-                          <span className="text-stone-300" aria-hidden="true">
-                            ·
-                          </span>
-                          <span className="font-semibold text-stone-900">
-                            {apt.customer_name}
-                          </span>
-                          <span className="text-stone-300" aria-hidden="true">
-                            ·
-                          </span>
-                          <span
-                            className={`text-xs font-semibold ${
-                              alreadySent ? 'text-emerald-700' : 'text-amber-700'
-                            }`}
-                          >
-                            {alreadySent ? 'תזכורת נשלחה' : 'ממתין לשליחה'}
-                          </span>
-                        </div>
-                        <p className="text-xs text-stone-500 line-clamp-2">{msg}</p>
-                      </div>
-
-                      <div className="flex items-center gap-2 shrink-0">
-                        <a
-                          href={waHref}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={() => void handleMarkReminderSent(apt)}
-                          className={`inline-flex min-h-[42px] items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-semibold transition-colors whitespace-nowrap ${
-                            alreadySent
-                              ? 'border border-stone-200 bg-white text-stone-700 hover:bg-stone-50'
-                              : 'bg-emerald-700 text-white hover:bg-emerald-800'
-                          }`}
-                        >
-                          <MessageCircle className="h-4 w-4" />
-                          <span>{alreadySent ? 'שלח שוב' : 'שלח בוואטסאפ'}</span>
-                        </a>
-
-                        {!alreadySent && (
-                          <button
-                            type="button"
-                            onClick={() => void handleMarkReminderSent(apt)}
-                            title="סמן כנשלח"
-                            className="flex h-[42px] w-[42px] items-center justify-center rounded-xl border border-stone-200 text-stone-600 hover:bg-stone-50"
-                          >
-                            <Check className="h-4 w-4" />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </section>
-        </div>
-      )}
-
-      {/* TAB 3: BARBERSHOP SETTINGS */}
+      {/* TAB 2: BARBERSHOP SETTINGS */}
       {activeTab === 'settings' && (
         <div className="space-y-6">
           {/* Dedicated Shop Name & Phone Quick-Edit Section */}
@@ -1070,7 +663,7 @@ export function BarberAdmin({
                 פרטי המספרה וטלפון ליצירת קשר
               </h2>
               <p className="mt-1 text-sm text-stone-500">
-                עדכן את שם המספרה ואת מספר הטלפון של הספר (ברירת מחדל 0527138795) לחיוג ולוואטסאפ.
+                עדכן את שם המספרה ואת מספר הטלפון של הספר (ברירת מחדל 0527138795) לחיוג ישיר.
               </p>
             </div>
 
@@ -1100,7 +693,7 @@ export function BarberAdmin({
                   htmlFor="identity-barber-phone"
                   className="mb-1.5 block text-xs font-semibold text-stone-600"
                 >
-                  טלפון הספר (לחיוג ו-WhatsApp)
+                  טלפון הספר (לחיוג)
                 </label>
                 <input
                   id="identity-barber-phone"

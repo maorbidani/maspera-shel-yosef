@@ -38,21 +38,14 @@ export function getDayKeyFromDateStr(dateStr: string): DayKey {
   return String(dt.getDay()) as DayKey;
 }
 
-/**
- * Determines whether a YYYY-MM-DD date falls in Israel Daylight Saving Time (שעון קיץ):
- * Starts on the Friday before the last Sunday of March, ends on the last Sunday of October.
- */
 export function isIsraelSummerTime(dateStr: string): boolean {
   const [y] = dateStr.split('-').map(Number);
   if (!y) return false;
 
-  // Last Sunday of March
   const march31 = new Date(y, 2, 31, 12, 0, 0);
   const lastSundayMarch = 31 - march31.getDay();
-  // DST starts on the Friday before the last Sunday of March
   const dstStartStr = toLocalDateStr(new Date(y, 2, lastSundayMarch - 2, 12, 0, 0));
 
-  // Last Sunday of October
   const oct31 = new Date(y, 9, 31, 12, 0, 0);
   const lastSundayOct = 31 - oct31.getDay();
   const dstEndStr = toLocalDateStr(new Date(y, 9, lastSundayOct, 12, 0, 0));
@@ -68,8 +61,6 @@ export function getEffectiveDayHours(
   const dayConfig = workingHours[key];
   if (!dayConfig) return null;
 
-  // For Friday standard schedule (09:00-13:00 winter / 09:00-14:00 summer),
-  // automatically adjust seasonal closing hour when date crosses season boundary.
   if (
     key === '5' &&
     dayConfig.open &&
@@ -216,18 +207,6 @@ export function generateAllDaySlots(
   return slots;
 }
 
-export function normalizeIsraeliPhoneForWhatsApp(phone: string): string {
-  const digits = phone.replace(/\D/g, '');
-  if (!digits) return '';
-  if (digits.startsWith('972')) {
-    return digits;
-  }
-  if (digits.startsWith('0')) {
-    return `972${digits.slice(1)}`;
-  }
-  return `972${digits}`;
-}
-
 export function isValidIsraeliPhone(phone: string): boolean {
   const digits = phone.replace(/\D/g, '');
   return (
@@ -235,50 +214,4 @@ export function isValidIsraeliPhone(phone: string): boolean {
     (digits.startsWith('9725') && digits.length === 12) ||
     (digits.startsWith('0') && digits.length >= 9 && digits.length <= 10)
   );
-}
-
-export function buildWhatsAppUrl(phone: string, message: string): string {
-  const normalized = normalizeIsraeliPhoneForWhatsApp(phone);
-  if (!normalized) {
-    return `https://wa.me/?text=${encodeURIComponent(message)}`;
-  }
-  return `https://wa.me/${normalized}?text=${encodeURIComponent(message)}`;
-}
-
-export function buildGoogleCalendarUrl(params: {
-  title: string;
-  dateStr: string;
-  startTimeHHMM: string;
-  durationMinutes: number;
-  details: string;
-  location: string;
-}): string {
-  const [y, m, d] = params.dateStr.split('-');
-  const startMin = timeToMinutes(params.startTimeHHMM);
-  const endMin = startMin + Math.max(15, params.durationMinutes || 25);
-
-  const startHHMM = minutesToHHMM(startMin).replace(':', '');
-  const endHHMM = minutesToHHMM(endMin).replace(':', '');
-
-  const datesParam = `${y}${m}${d}T${startHHMM}00/${y}${m}${d}T${endHHMM}00`;
-
-  const url = new URL('https://calendar.google.com/calendar/render');
-  url.searchParams.set('action', 'TEMPLATE');
-  url.searchParams.set('text', params.title);
-  url.searchParams.set('dates', datesParam);
-  url.searchParams.set('details', params.details);
-  url.searchParams.set('location', params.location);
-  url.searchParams.set('ctz', 'Asia/Jerusalem');
-  return url.toString();
-}
-
-export function formatReminderMessage(
-  template: string,
-  vars: { name: string; shop: string; time: string; date: string }
-): string {
-  return template
-    .replaceAll('{name}', vars.name)
-    .replaceAll('{shop}', vars.shop)
-    .replaceAll('{time}', vars.time)
-    .replaceAll('{date}', vars.date);
 }

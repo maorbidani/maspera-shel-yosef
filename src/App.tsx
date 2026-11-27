@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import { AlertCircle, Check, Copy, MessageCircle, Scissors } from 'lucide-react';
+import { AlertCircle, Check, Copy, Phone, Scissors } from 'lucide-react';
 import { BarberAdmin } from './components/BarberAdmin';
 import { BarberAuthGate } from './components/BarberAuthGate';
 import { CustomerBooking } from './components/CustomerBooking';
 import { PWAInstallButton } from './components/PWAInstallButton';
-import { buildWhatsAppUrl } from './lib/dateUtils';
 import {
   fetchBarbershopSettings,
   isSupabaseConfigured,
@@ -111,8 +110,31 @@ export default function App() {
 
   useEffect(() => {
     document.title = isBarberRoute
-      ? `ניהול יומן — ${settings.shop_name}`
+      ? 'ניהול מספרת יוסף'
       : `${settings.shop_name} — זימון תורים`;
+
+    const manifestHref = isBarberRoute
+      ? '/manage-manifest.webmanifest'
+      : '/manifest.webmanifest';
+    let manifestLink = document.querySelector<HTMLLinkElement>('link[rel="manifest"]');
+    if (!manifestLink) {
+      manifestLink = document.createElement('link');
+      manifestLink.rel = 'manifest';
+      document.head.appendChild(manifestLink);
+    }
+    if (manifestLink.getAttribute('href') !== manifestHref) {
+      manifestLink.setAttribute('href', manifestHref);
+    }
+
+    const appleTitleMeta = document.querySelector<HTMLMetaElement>(
+      'meta[name="apple-mobile-web-app-title"]'
+    );
+    if (appleTitleMeta) {
+      appleTitleMeta.setAttribute(
+        'content',
+        isBarberRoute ? 'ניהול מספרת יוסף' : 'מספרת יוסף נחמני'
+      );
+    }
   }, [isBarberRoute, settings.shop_name]);
 
   async function handleBarberLogout() {
@@ -182,16 +204,11 @@ export default function App() {
             </div>
           ) : (
             <a
-              href={buildWhatsAppUrl(
-                settings.phone,
-                `שלום, אשמח לתאם תור ב${settings.shop_name}`
-              )}
-              target="_blank"
-              rel="noopener noreferrer"
+              href={`tel:${settings.phone}`}
               className="inline-flex min-h-[38px] items-center gap-1.5 rounded-xl bg-stone-900 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-stone-800 whitespace-nowrap shrink-0"
             >
-              <MessageCircle className="h-3.5 w-3.5" />
-              <span>וואטסאפ לספר</span>
+              <Phone className="h-3.5 w-3.5" />
+              <span>התקשר לספר</span>
             </a>
           )}
         </div>
@@ -199,9 +216,16 @@ export default function App() {
 
       {/* Main Content */}
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-4 sm:px-6 sm:py-7">
-        {/* PWA Install Prompt Action Row (Hidden automatically when already installed in standalone mode) */}
+        {/* PWA Install Prompt Action Row */}
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2 empty:hidden">
-          <PWAInstallButton />
+          <PWAInstallButton
+            label={isBarberRoute ? 'התקן אפליקציית ניהול' : 'התקן את האפליקציה'}
+            modalTitle={
+              isBarberRoute
+                ? 'התקנת אפליקציית הניהול למסך הבית'
+                : 'התקנת האפליקציה למסך הבית'
+            }
+          />
         </div>
 
         {!isSupabaseConfigured && (
@@ -244,7 +268,6 @@ export default function App() {
             </div>
           ) : adminToken ? (
             <BarberAdmin
-              adminToken={adminToken}
               settings={settings}
               appointmentsVersion={appointmentsVersion}
               onSettingsUpdated={(next) => setSettings(next)}

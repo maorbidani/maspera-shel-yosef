@@ -4,9 +4,15 @@ import { usePWAInstall } from '../hooks/usePWAInstall';
 
 interface PWAInstallButtonProps {
   className?: string;
+  label?: string;
+  modalTitle?: string;
 }
 
-export function PWAInstallButton({ className = '' }: PWAInstallButtonProps) {
+export function PWAInstallButton({
+  className = '',
+  label = 'התקן את האפליקציה',
+  modalTitle = 'התקנת האפליקציה למסך הבית',
+}: PWAInstallButtonProps) {
   const { isInstallable, isInstalled, isIOS, install } = usePWAInstall();
   const [showGuideModal, setShowGuideModal] = useState<boolean>(false);
 
@@ -32,7 +38,7 @@ export function PWAInstallButton({ className = '' }: PWAInstallButtonProps) {
         className={`inline-flex min-h-[42px] items-center justify-center gap-2 rounded-xl border border-stone-300 bg-white px-4 py-2 text-xs sm:text-sm font-semibold text-stone-900 shadow-xs transition-colors hover:bg-stone-50 active:scale-[0.98] whitespace-nowrap ${className}`}
       >
         <Download className="h-4 w-4 shrink-0 text-amber-700" />
-        <span>התקן את האפליקציה</span>
+        <span>{label}</span>
       </button>
 
       {showGuideModal && (
@@ -52,7 +58,7 @@ export function PWAInstallButton({ className = '' }: PWAInstallButtonProps) {
                 id="pwa-install-title"
                 className="font-display text-lg font-bold text-stone-900"
               >
-                התקנת האפליקציה למסך הבית
+                {modalTitle}
               </h2>
               <button
                 type="button"
