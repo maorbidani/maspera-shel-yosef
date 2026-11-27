@@ -56,15 +56,55 @@ export async function fetchBarbershopSettings(): Promise<BarbershopSettings> {
   }
 
   if (!data) {
+    // Seed initial row id=1 if missing
+    try {
+      const { data: seeded } = await supabase
+        .from('barbershop_settings')
+        .upsert(DEFAULT_SETTINGS, { onConflict: 'id' })
+        .select()
+        .single();
+      if (seeded) {
+        return {
+          id: seeded.id ?? 1,
+          shop_name: seeded.shop_name || DEFAULT_SETTINGS.shop_name,
+          phone: seeded.phone || DEFAULT_SETTINGS.phone,
+          slot_minutes: Number(seeded.slot_minutes) || DEFAULT_SETTINGS.slot_minutes,
+          days_ahead: Number(seeded.days_ahead) || DEFAULT_SETTINGS.days_ahead,
+          working_hours: sanitizeWorkingHours(seeded.working_hours),
+        };
+      }
+    } catch {
+      // Ignore if RLS prevents anon seeding
+    }
     return DEFAULT_SETTINGS;
+  }
+
+  // Auto-upgrade legacy initial placeholder row to the updated barbershop details
+  if (data.shop_name === 'המספרה של יוסף' && Number(data.slot_minutes) === 30) {
+    const upgraded: BarbershopSettings = {
+      id: 1,
+      shop_name: DEFAULT_SETTINGS.shop_name,
+      phone: data.phone || DEFAULT_SETTINGS.phone,
+      slot_minutes: DEFAULT_SETTINGS.slot_minutes,
+      days_ahead: Number(data.days_ahead) || DEFAULT_SETTINGS.days_ahead,
+      working_hours: DEFAULT_WORKING_HOURS,
+    };
+    try {
+      await supabase
+        .from('barbershop_settings')
+        .upsert(upgraded, { onConflict: 'id' });
+    } catch {
+      // Return upgraded settings even if write is restricted
+    }
+    return upgraded;
   }
 
   return {
     id: data.id ?? 1,
     shop_name: data.shop_name || DEFAULT_SETTINGS.shop_name,
     phone: data.phone || DEFAULT_SETTINGS.phone,
-    slot_minutes: Number(data.slot_minutes) || 30,
-    days_ahead: Number(data.days_ahead) || 14,
+    slot_minutes: Number(data.slot_minutes) || DEFAULT_SETTINGS.slot_minutes,
+    days_ahead: Number(data.days_ahead) || DEFAULT_SETTINGS.days_ahead,
     working_hours: sanitizeWorkingHours(data.working_hours),
   };
 }
@@ -80,8 +120,8 @@ export async function saveBarbershopSettings(
     id: 1,
     shop_name: settings.shop_name.trim(),
     phone: settings.phone.trim(),
-    slot_minutes: Number(settings.slot_minutes) || 30,
-    days_ahead: Number(settings.days_ahead) || 14,
+    slot_minutes: Number(settings.slot_minutes) || DEFAULT_SETTINGS.slot_minutes,
+    days_ahead: Number(settings.days_ahead) || DEFAULT_SETTINGS.days_ahead,
     working_hours: settings.working_hours,
   };
 
@@ -99,8 +139,8 @@ export async function saveBarbershopSettings(
     id: data.id ?? 1,
     shop_name: data.shop_name,
     phone: data.phone,
-    slot_minutes: Number(data.slot_minutes) || 30,
-    days_ahead: Number(data.days_ahead) || 14,
+    slot_minutes: Number(data.slot_minutes) || DEFAULT_SETTINGS.slot_minutes,
+    days_ahead: Number(data.days_ahead) || DEFAULT_SETTINGS.days_ahead,
     working_hours: sanitizeWorkingHours(data.working_hours),
   };
 }
@@ -129,7 +169,6 @@ export async function createAppointment(input: NewAppointmentInput): Promise<App
     throw new Error('חיבור Supabase אינו מוגדר עדיין');
   }
 
-  // Check if slot was taken in the meantime
   const { data: existing, error: checkError } = await supabase
     .from('appointments')
     .select('id')
@@ -180,3 +219,32 @@ export async function deleteAppointment(id: string): Promise<void> {
     throw new Error(error.message);
   }
 }
+
+export function subscribeToBarbershopChanges(
+  onSettingsChange: () => void,
+  onAppointmentsChange: () => void
+): () => void {
+  if (!supabase) {
+    return () => {};
+  }
+
+  const client = supabase;
+  const channel = client
+    .channel('barbershop-live-sync')
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'barbershop_settings' },
+      () => onSettingsChange()
+    )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'appointments' },
+      () => onAppointmentsChange()
+    )
+    .subscribe();
+
+  return () => {
+    void client.removeChannel(channel);
+  };
+}
+

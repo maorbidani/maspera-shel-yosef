@@ -1,20 +1,39 @@
-import { useCallback, useEffect, useState } from 'react';
-import { AlertCircle, Lock, Scissors } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { AlertCircle, Check, Copy, MessageCircle, Scissors } from 'lucide-react';
 import { BarberAdmin } from './components/BarberAdmin';
-import { BarberPinGate } from './components/BarberPinGate';
+import { BarberAuthGate } from './components/BarberAuthGate';
 import { CustomerBooking } from './components/CustomerBooking';
-import { fetchBarbershopSettings, isSupabaseConfigured } from './lib/supabase';
-import { DEFAULT_SETTINGS, type BarbershopSettings } from './types';
+import { buildWhatsAppUrl } from './lib/dateUtils';
+import {
+  fetchBarbershopSettings,
+  isSupabaseConfigured,
+  subscribeToBarbershopChanges,
+  supabase,
+} from './lib/supabase';
+import { BARBERSHOP_MEDIA, DEFAULT_SETTINGS, type BarbershopSettings } from './types';
 
-type AppScreen = 'customer' | 'admin';
+export const BARBER_MANAGE_PATH = '/yosef-manage-7492';
+
+function isBarberManageRoute(pathname: string): boolean {
+  const normalized = pathname.replace(/\/+$/, '') || '/';
+  return normalized === BARBER_MANAGE_PATH;
+}
 
 export default function App() {
-  const [screen, setScreen] = useState<AppScreen>('customer');
+  const isBarberRoute = useMemo(() => {
+    if (typeof window === 'undefined') return false;
+    return isBarberManageRoute(window.location.pathname);
+  }, []);
+
   const [settings, setSettings] = useState<BarbershopSettings>(DEFAULT_SETTINGS);
   const [settingsLoading, setSettingsLoading] = useState<boolean>(true);
   const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [appointmentsVersion, setAppointmentsVersion] = useState<number>(0);
+
   const [adminToken, setAdminToken] = useState<string | null>(null);
-  const [markImgFailed, setMarkImgFailed] = useState<boolean>(false);
+  const [authChecking, setAuthChecking] = useState<boolean>(isBarberRoute);
+  const [logoFailed, setLogoFailed] = useState<boolean>(false);
+  const [copiedCustomerLink, setCopiedCustomerLink] = useState<boolean>(false);
 
   const loadSettings = useCallback(async () => {
     setSettingsLoading(true);
@@ -35,66 +54,147 @@ export default function App() {
     void loadSettings();
   }, [loadSettings]);
 
+  // Real-time & window-focus synchronization across customer and barber links
   useEffect(() => {
-    document.title = `${settings.shop_name} — זימון וניהול תורים`;
-  }, [settings.shop_name]);
+    const unsubscribeRealtime = subscribeToBarbershopChanges(
+      () => {
+        void loadSettings();
+      },
+      () => {
+        setAppointmentsVersion((v) => v + 1);
+      }
+    );
+
+    const handleFocus = () => {
+      void loadSettings();
+      setAppointmentsVersion((v) => v + 1);
+    };
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      unsubscribeRealtime();
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [loadSettings]);
+
+  // Check and subscribe to Supabase Auth session ONLY on the dedicated barber route
+  useEffect(() => {
+    if (!isBarberRoute || !supabase) {
+      setAuthChecking(false);
+      return;
+    }
+
+    let active = true;
+    const client = supabase;
+
+    async function initSession() {
+      try {
+        const { data } = await client.auth.getSession();
+        if (!active) return;
+        setAdminToken(data.session?.access_token ?? null);
+      } finally {
+        if (active) setAuthChecking(false);
+      }
+    }
+
+    void initSession();
+
+    const { data: authListener } = client.auth.onAuthStateChange((_event, session) => {
+      if (!active) return;
+      setAdminToken(session?.access_token ?? null);
+    });
+
+    return () => {
+      active = false;
+      authListener.subscription.unsubscribe();
+    };
+  }, [isBarberRoute]);
+
+  useEffect(() => {
+    document.title = isBarberRoute
+      ? `ניהול יומן — ${settings.shop_name}`
+      : `${settings.shop_name} — זימון תורים`;
+  }, [isBarberRoute, settings.shop_name]);
+
+  async function handleBarberLogout() {
+    if (supabase) {
+      await supabase.auth.signOut();
+    }
+    setAdminToken(null);
+  }
+
+  async function handleCopyCustomerUrl() {
+    const url = `${window.location.origin}/`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiedCustomerLink(true);
+      setTimeout(() => setCopiedCustomerLink(false), 2500);
+    } catch {
+      // ignore clipboard errors
+    }
+  }
 
   return (
     <div className="min-h-screen flex flex-col bg-stone-50 text-stone-900">
       {/* Compact Sticky Top Bar (56px) */}
-      <header className="sticky top-0 z-30 border-b border-stone-200 bg-white/90 backdrop-blur-md">
-        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
-          <button
-            type="button"
-            onClick={() => setScreen('customer')}
-            className="flex items-center gap-2.5 text-right whitespace-nowrap shrink-0 focus:outline-none"
-          >
-            {!markImgFailed ? (
+      <header className="sticky top-0 z-30 border-b border-stone-200 bg-white/95 backdrop-blur-md">
+        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-3 px-4 sm:px-6">
+          <div className="flex min-w-0 items-center gap-2.5">
+            {!logoFailed ? (
               <img
-                src="/src/assets/images/barber_tools_mark_1795723783403.jpg"
-                alt=""
+                src={BARBERSHOP_MEDIA.logo}
+                alt={settings.shop_name}
                 referrerPolicy="no-referrer"
-                onError={() => setMarkImgFailed(true)}
-                className="h-8 w-8 rounded-lg object-cover border border-stone-200"
+                onError={() => setLogoFailed(true)}
+                className="h-9 w-9 shrink-0 rounded-full object-cover border border-amber-500/50 bg-stone-950"
               />
             ) : (
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-stone-900 text-amber-400">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-stone-900 text-amber-400">
                 <Scissors className="h-4 w-4" />
               </span>
             )}
-            <span className="font-display text-base sm:text-lg font-bold tracking-tight text-stone-900 whitespace-nowrap shrink-0">
+            <span className="font-display text-sm sm:text-base font-bold tracking-tight text-stone-900 truncate">
               {settings.shop_name}
             </span>
-          </button>
+          </div>
 
-          <nav
-            aria-label="מעבר בין מסכים"
-            className="flex items-center gap-1 rounded-xl bg-stone-100 p-1 shrink-0"
-          >
-            <button
-              type="button"
-              onClick={() => setScreen('customer')}
-              className={`min-h-[36px] rounded-lg px-3.5 py-1.5 text-xs sm:text-sm font-semibold whitespace-nowrap shrink-0 transition-colors ${
-                screen === 'customer'
-                  ? 'bg-white text-stone-900 shadow-sm'
-                  : 'text-stone-600 hover:text-stone-900'
-              }`}
+          {isBarberRoute ? (
+            <div className="flex items-center gap-3 shrink-0">
+              <span className="hidden sm:inline text-xs font-semibold text-stone-500 whitespace-nowrap">
+                ממשק ניהול ספר
+              </span>
+              <button
+                type="button"
+                onClick={() => void handleCopyCustomerUrl()}
+                className="inline-flex min-h-[38px] items-center gap-1.5 rounded-xl border border-stone-200 bg-stone-50 px-3 py-1.5 text-xs font-semibold text-stone-800 hover:bg-stone-100 whitespace-nowrap shrink-0"
+              >
+                {copiedCustomerLink ? (
+                  <>
+                    <Check className="h-3.5 w-3.5 text-emerald-700" />
+                    <span>הקישור ללקוחות הועתק</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="h-3.5 w-3.5" />
+                    <span>העתק קישור ללקוחות</span>
+                  </>
+                )}
+              </button>
+            </div>
+          ) : (
+            <a
+              href={buildWhatsAppUrl(
+                settings.phone,
+                `שלום, אשמח לתאם תור ב${settings.shop_name}`
+              )}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex min-h-[38px] items-center gap-1.5 rounded-xl bg-stone-900 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-stone-800 whitespace-nowrap shrink-0"
             >
-              הזמנת תור
-            </button>
-            <button
-              type="button"
-              onClick={() => setScreen('admin')}
-              className={`inline-flex min-h-[36px] items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs sm:text-sm font-semibold whitespace-nowrap shrink-0 transition-colors ${
-                screen === 'admin'
-                  ? 'bg-stone-900 text-white shadow-sm'
-                  : 'text-stone-600 hover:text-stone-900'
-              }`}
-            >
-              <Lock className="h-3.5 w-3.5" />
-              <span>ניהול הספר</span>
-            </button>
-          </nav>
+              <MessageCircle className="h-3.5 w-3.5" />
+              <span>וואטסאפ לספר</span>
+            </a>
+          )}
         </div>
       </header>
 
@@ -133,17 +233,31 @@ export default function App() {
           </div>
         )}
 
-        {screen === 'customer' ? (
-          <CustomerBooking settings={settings} settingsLoading={settingsLoading} />
-        ) : adminToken ? (
-          <BarberAdmin
-            adminToken={adminToken}
-            settings={settings}
-            onSettingsUpdated={(next) => setSettings(next)}
-            onLogout={() => setAdminToken(null)}
-          />
+        {isBarberRoute ? (
+          authChecking ? (
+            <div className="mx-auto max-w-md py-12">
+              <div className="h-64 animate-pulse rounded-3xl border border-stone-200 bg-white" />
+            </div>
+          ) : adminToken ? (
+            <BarberAdmin
+              adminToken={adminToken}
+              settings={settings}
+              appointmentsVersion={appointmentsVersion}
+              onSettingsUpdated={(next) => setSettings(next)}
+              onLogout={() => void handleBarberLogout()}
+            />
+          ) : (
+            <BarberAuthGate
+              shopName={settings.shop_name}
+              onSuccess={(token) => setAdminToken(token)}
+            />
+          )
         ) : (
-          <BarberPinGate onSuccess={(token) => setAdminToken(token)} />
+          <CustomerBooking
+            settings={settings}
+            settingsLoading={settingsLoading}
+            appointmentsVersion={appointmentsVersion}
+          />
         )}
       </main>
 

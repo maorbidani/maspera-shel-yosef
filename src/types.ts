@@ -62,21 +62,39 @@ export interface ReminderAutomationStatus {
   logs: ReminderDispatchLog[];
 }
 
+export const BARBERSHOP_MEDIA = {
+  logo: '/assets/aistudio/IMG-20261127-WA0006_ce558cab.jpg',
+  gallery: [
+    {
+      src: '/assets/aistudio/IMG-20261127-WA0008_7dee1fd9.jpg',
+      alt: 'עמדת התספורת והמראות במספרת גברים וילדים יוסף נחמני',
+    },
+    {
+      src: '/assets/aistudio/IMG-20261127-WA0007_e29306a1.jpg',
+      alt: 'חלל המספרה והתאורה המודרנית במספרת יוסף נחמני',
+    },
+    {
+      src: '/assets/aistudio/IMG-20261127-WA0009_333a3c64.jpg',
+      alt: 'מבט פנימי על עמדת הטיפוח והמראות במספרה',
+    },
+  ],
+} as const;
+
 export const DEFAULT_WORKING_HOURS: WorkingHours = {
-  '0': { open: true, start: '09:00', end: '19:00' },
-  '1': { open: true, start: '09:00', end: '19:00' },
-  '2': { open: true, start: '09:00', end: '19:00' },
-  '3': { open: true, start: '09:00', end: '19:00' },
-  '4': { open: true, start: '09:00', end: '20:00' },
-  '5': { open: true, start: '08:30', end: '14:30' },
-  '6': { open: false, start: '09:00', end: '14:00' },
+  '0': { open: true, start: '17:00', end: '21:00' },
+  '1': { open: true, start: '17:00', end: '21:00' },
+  '2': { open: true, start: '17:00', end: '21:00' },
+  '3': { open: true, start: '17:00', end: '21:00' },
+  '4': { open: true, start: '17:00', end: '23:00' },
+  '5': { open: true, start: '09:00', end: '13:00' }, // 09:00-13:00 winter, 09:00-14:00 summer
+  '6': { open: false, start: '09:00', end: '13:00' },
 };
 
 export const DEFAULT_SETTINGS: BarbershopSettings = {
   id: 1,
-  shop_name: 'המספרה של יוסף',
+  shop_name: 'מספרת גברים וילדים יוסף נחמני',
   phone: '0500000000',
-  slot_minutes: 30,
+  slot_minutes: 25,
   days_ahead: 14,
   working_hours: DEFAULT_WORKING_HOURS,
 };

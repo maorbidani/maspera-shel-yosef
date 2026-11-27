@@ -16,8 +16,9 @@ import {
   formatHebrewDayChip,
   formatHebrewFullDate,
   generateAvailableSlots,
-  getDayKeyFromDateStr,
+  getEffectiveDayHours,
   getOpenDatesInRange,
+  isIsraelSummerTime,
   isValidIsraeliPhone,
   toLocalDateStr,
   toTimeWithSeconds,
@@ -27,14 +28,23 @@ import {
   fetchAppointmentsByDate,
   isSupabaseConfigured,
 } from '../lib/supabase';
-import type { Appointment, BarbershopSettings } from '../types';
+import {
+  BARBERSHOP_MEDIA,
+  type Appointment,
+  type BarbershopSettings,
+} from '../types';
 
 interface CustomerBookingProps {
   settings: BarbershopSettings;
   settingsLoading: boolean;
+  appointmentsVersion: number;
 }
 
-export function CustomerBooking({ settings, settingsLoading }: CustomerBookingProps) {
+export function CustomerBooking({
+  settings,
+  settingsLoading,
+  appointmentsVersion,
+}: CustomerBookingProps) {
   const todayStr = useMemo(() => toLocalDateStr(new Date()), []);
   const openDates = useMemo(
     () => getOpenDatesInRange(settings.working_hours, settings.days_ahead, new Date()),
@@ -52,7 +62,10 @@ export function CustomerBooking({ settings, settingsLoading }: CustomerBookingPr
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [confirmedAppointment, setConfirmedAppointment] = useState<Appointment | null>(null);
-  const [heroImgFailed, setHeroImgFailed] = useState<boolean>(false);
+
+  const [activePhotoIndex, setActivePhotoIndex] = useState<number>(0);
+  const [failedPhotos, setFailedPhotos] = useState<Record<number, boolean>>({});
+  const [logoFailed, setLogoFailed] = useState<boolean>(false);
 
   useEffect(() => {
     if (openDates.length > 0 && (!selectedDate || !openDates.includes(selectedDate))) {
@@ -67,11 +80,14 @@ export function CustomerBooking({ settings, settingsLoading }: CustomerBookingPr
     async function loadDayAppointments() {
       setSlotsLoading(true);
       setSlotsError(null);
-      setSelectedSlot('');
       try {
         const rows = await fetchAppointmentsByDate(selectedDate);
         if (!active) return;
-        setBookedTimes(rows.map((r) => r.start_time));
+        const times = rows.map((r) => r.start_time);
+        setBookedTimes(times);
+        setSelectedSlot((prev) =>
+          prev && times.some((t) => t.slice(0, 5) === prev) ? '' : prev
+        );
       } catch (err) {
         if (!active) return;
         setSlotsError(
@@ -87,7 +103,7 @@ export function CustomerBooking({ settings, settingsLoading }: CustomerBookingPr
     return () => {
       active = false;
     };
-  }, [selectedDate]);
+  }, [selectedDate, appointmentsVersion]);
 
   const availableSlots = useMemo(() => {
     if (!selectedDate) return [];
@@ -102,8 +118,7 @@ export function CustomerBooking({ settings, settingsLoading }: CustomerBookingPr
 
   const selectedDayHours = useMemo(() => {
     if (!selectedDate) return null;
-    const key = getDayKeyFromDateStr(selectedDate);
-    return settings.working_hours[key] ?? null;
+    return getEffectiveDayHours(selectedDate, settings.working_hours);
   }, [selectedDate, settings.working_hours]);
 
   const nextAvailableDate = useMemo(() => {
@@ -114,6 +129,16 @@ export function CustomerBooking({ settings, settingsLoading }: CustomerBookingPr
     }
     return null;
   }, [openDates, selectedDate]);
+
+  const isSummerNow = useMemo(() => isIsraelSummerTime(todayStr), [todayStr]);
+
+  const fridayHours = settings.working_hours['5'];
+  const sunHours = settings.working_hours['0'];
+  const thuHours = settings.working_hours['4'];
+  const isStandardFridaySchedule =
+    fridayHours?.open &&
+    fridayHours.start === '09:00' &&
+    (fridayHours.end === '13:00' || fridayHours.end === '14:00');
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -150,7 +175,6 @@ export function CustomerBooking({ settings, settingsLoading }: CustomerBookingPr
       setBookedTimes((prev) => [...prev, created.start_time]);
     } catch (err) {
       setFormError(err instanceof Error ? err.message : 'אירעה שגיאה בקביעת התור.');
-      // Refresh slots in case the selected slot was just taken
       try {
         const refreshed = await fetchAppointmentsByDate(selectedDate);
         setBookedTimes(refreshed.map((r) => r.start_time));
@@ -265,45 +289,129 @@ export function CustomerBooking({ settings, settingsLoading }: CustomerBookingPr
     );
   }
 
+  const currentPhoto = BARBERSHOP_MEDIA.gallery[activePhotoIndex] ?? BARBERSHOP_MEDIA.gallery[0];
+
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-12 lg:items-start">
-      {/* Right Column in RTL: Shop Hero + Step 1 Date Picker */}
+      {/* Right Column in RTL: Shop Hero + Gallery + Opening Hours + Step 1 Date Picker */}
       <div className="space-y-6 lg:col-span-5">
         <div className="overflow-hidden rounded-3xl border border-stone-200 bg-white">
-          <div className="relative aspect-[16/9] w-full bg-stone-200">
-            {!heroImgFailed ? (
+          <div className="relative aspect-[16/10] w-full bg-stone-900">
+            {!failedPhotos[activePhotoIndex] ? (
               <img
-                src="/src/assets/images/barbershop_hero_1795723784153.jpg"
-                alt={settings.shop_name}
+                src={currentPhoto.src}
+                alt={currentPhoto.alt}
                 referrerPolicy="no-referrer"
-                onError={() => setHeroImgFailed(true)}
+                onError={() =>
+                  setFailedPhotos((prev) => ({ ...prev, [activePhotoIndex]: true }))
+                }
                 className="h-full w-full object-cover"
               />
             ) : (
-              <div className="flex h-full w-full flex-col items-center justify-center bg-gradient-to-br from-stone-800 to-stone-900 text-stone-200">
+              <div className="flex h-full w-full flex-col items-center justify-center bg-gradient-to-br from-stone-800 to-stone-950 text-stone-200">
                 <Scissors className="h-10 w-10 text-amber-400" />
                 <span className="mt-2 font-display text-lg font-bold">
                   {settings.shop_name}
                 </span>
               </div>
             )}
-            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent" />
-            <div className="absolute inset-x-0 bottom-0 p-5 text-white">
-              <h1 className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-balance">
-                {settings.shop_name}
-              </h1>
-              <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs sm:text-sm text-stone-200">
-                <span>תור של {settings.slot_minutes} דקות</span>
-                <span aria-hidden="true">·</span>
-                {selectedDayHours?.open ? (
-                  <span className="tabular-nums">
-                    פתוח {selectedDayHours.start}–{selectedDayHours.end}
-                  </span>
-                ) : (
-                  <span>הזמנה אונליין מהירה</span>
-                )}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/35 to-transparent" />
+
+            <div className="absolute inset-x-0 bottom-0 flex items-end gap-3.5 p-4 sm:p-5 text-white">
+              {!logoFailed && (
+                <img
+                  src={BARBERSHOP_MEDIA.logo}
+                  alt={`לוגו ${settings.shop_name}`}
+                  referrerPolicy="no-referrer"
+                  onError={() => setLogoFailed(true)}
+                  className="h-14 w-14 shrink-0 rounded-full object-cover ring-2 ring-amber-400/80 shadow-md bg-stone-950"
+                />
+              )}
+              <div className="min-w-0">
+                <h1 className="font-display text-xl sm:text-2xl font-bold tracking-tight text-balance leading-snug">
+                  {settings.shop_name}
+                </h1>
+                <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs sm:text-sm text-stone-200">
+                  <span>תור של {settings.slot_minutes} דקות</span>
+                  <span aria-hidden="true">·</span>
+                  {selectedDayHours?.open ? (
+                    <span className="tabular-nums">
+                      פתוח {selectedDayHours.start}–{selectedDayHours.end}
+                    </span>
+                  ) : (
+                    <span>הזמנה אונליין מהירה</span>
+                  )}
+                </div>
               </div>
             </div>
+          </div>
+
+          {/* 3-Photo Space Gallery Switcher */}
+          <div className="grid grid-cols-3 gap-2 border-b border-stone-100 bg-stone-50/70 p-2.5">
+            {BARBERSHOP_MEDIA.gallery.map((photo, index) => {
+              const isActive = index === activePhotoIndex;
+              return (
+                <button
+                  key={photo.src}
+                  type="button"
+                  onClick={() => setActivePhotoIndex(index)}
+                  aria-label={`תמונת מספרה ${index + 1}`}
+                  aria-pressed={isActive}
+                  className={`relative aspect-[16/10] overflow-hidden rounded-xl border transition-all ${
+                    isActive
+                      ? 'border-stone-900 ring-2 ring-stone-900/20'
+                      : 'border-stone-200 opacity-75 hover:opacity-100'
+                  }`}
+                >
+                  <img
+                    src={photo.src}
+                    alt={photo.alt}
+                    referrerPolicy="no-referrer"
+                    className="h-full w-full object-cover"
+                  />
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Official Opening Hours Details */}
+          <div className="border-b border-stone-100 px-5 py-4">
+            <h2 className="text-xs font-bold text-stone-500">שעות פעילות</h2>
+            <dl className="mt-2.5 space-y-1.5 text-sm">
+              <div className="flex items-center justify-between gap-4">
+                <dt className="text-stone-600">ימים א׳–ד׳</dt>
+                <dd className="font-semibold tabular-nums text-stone-900">
+                  {sunHours?.open ? `${sunHours.start}–${sunHours.end}` : 'סגור'}
+                </dd>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <dt className="text-stone-600">יום ה׳</dt>
+                <dd className="font-semibold tabular-nums text-stone-900">
+                  {thuHours?.open ? `${thuHours.start}–${thuHours.end}` : 'סגור'}
+                </dd>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <dt className="text-stone-600">יום שישי</dt>
+                <dd className="font-semibold tabular-nums text-stone-900 text-left">
+                  {isStandardFridaySchedule ? (
+                    <span>
+                      {isSummerNow ? '09:00–14:00 (קיץ)' : '09:00–13:00 (חורף)'}
+                      <span className="block text-[11px] font-normal text-stone-500">
+                        חורף 09:00–13:00 · קיץ 09:00–14:00
+                      </span>
+                    </span>
+                  ) : fridayHours?.open ? (
+                    `${fridayHours.start}–${fridayHours.end}`
+                  ) : (
+                    'סגור'
+                  )}
+                </dd>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <dt className="text-stone-600">שבת</dt>
+                <dd className="text-stone-500">סגור</dd>
+              </div>
+            </dl>
           </div>
 
           <div className="flex items-center justify-between gap-4 px-5 py-3.5 text-sm">
@@ -371,7 +479,10 @@ export function CustomerBooking({ settings, settingsLoading }: CustomerBookingPr
                   <button
                     key={dateStr}
                     type="button"
-                    onClick={() => setSelectedDate(dateStr)}
+                    onClick={() => {
+                      setSelectedDate(dateStr);
+                      setSelectedSlot('');
+                    }}
                     aria-pressed={isSelected}
                     className={`flex min-h-[76px] min-w-[68px] shrink-0 flex-col items-center justify-center rounded-2xl border px-3 py-2.5 transition-all active:scale-[0.97] ${
                       isSelected
@@ -419,7 +530,7 @@ export function CustomerBooking({ settings, settingsLoading }: CustomerBookingPr
             {!slotsLoading && selectedDate && (
               <span className="text-xs text-stone-500 tabular-nums">
                 {availableSlots.length > 0
-                  ? `${availableSlots.length} שעות פנויות`
+                  ? `${availableSlots.length} שעות פנויות (${settings.slot_minutes} דק׳)`
                   : 'אין שעות פנויות'}
               </span>
             )}

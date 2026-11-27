@@ -38,6 +38,54 @@ export function getDayKeyFromDateStr(dateStr: string): DayKey {
   return String(dt.getDay()) as DayKey;
 }
 
+/**
+ * Determines whether a YYYY-MM-DD date falls in Israel Daylight Saving Time (שעון קיץ):
+ * Starts on the Friday before the last Sunday of March, ends on the last Sunday of October.
+ */
+export function isIsraelSummerTime(dateStr: string): boolean {
+  const [y] = dateStr.split('-').map(Number);
+  if (!y) return false;
+
+  // Last Sunday of March
+  const march31 = new Date(y, 2, 31, 12, 0, 0);
+  const lastSundayMarch = 31 - march31.getDay();
+  // DST starts on the Friday before the last Sunday of March
+  const dstStartStr = toLocalDateStr(new Date(y, 2, lastSundayMarch - 2, 12, 0, 0));
+
+  // Last Sunday of October
+  const oct31 = new Date(y, 9, 31, 12, 0, 0);
+  const lastSundayOct = 31 - oct31.getDay();
+  const dstEndStr = toLocalDateStr(new Date(y, 9, lastSundayOct, 12, 0, 0));
+
+  return dateStr >= dstStartStr && dateStr < dstEndStr;
+}
+
+export function getEffectiveDayHours(
+  dateStr: string,
+  workingHours: WorkingHours
+): { open: boolean; start: string; end: string } | null {
+  const key = getDayKeyFromDateStr(dateStr);
+  const dayConfig = workingHours[key];
+  if (!dayConfig) return null;
+
+  // For Friday standard schedule (09:00-13:00 winter / 09:00-14:00 summer),
+  // automatically adjust seasonal closing hour when date crosses season boundary.
+  if (
+    key === '5' &&
+    dayConfig.open &&
+    dayConfig.start === '09:00' &&
+    (dayConfig.end === '13:00' || dayConfig.end === '14:00')
+  ) {
+    return {
+      open: true,
+      start: '09:00',
+      end: isIsraelSummerTime(dateStr) ? '14:00' : '13:00',
+    };
+  }
+
+  return dayConfig;
+}
+
 export function getOpenDatesInRange(
   workingHours: WorkingHours,
   daysAhead: number,
@@ -117,13 +165,12 @@ export function generateAvailableSlots(
   bookedStartTimes: string[],
   now: Date = new Date()
 ): string[] {
-  const key = getDayKeyFromDateStr(dateStr);
-  const dayConfig = workingHours[key];
+  const dayConfig = getEffectiveDayHours(dateStr, workingHours);
   if (!dayConfig || !dayConfig.open) {
     return [];
   }
 
-  const step = Math.max(10, Math.min(180, slotMinutes || 30));
+  const step = Math.max(10, Math.min(180, slotMinutes || 25));
   const startMin = timeToMinutes(dayConfig.start);
   const endMin = timeToMinutes(dayConfig.end);
   if (endMin <= startMin) {
@@ -154,13 +201,12 @@ export function generateAllDaySlots(
   workingHours: WorkingHours,
   slotMinutes: number
 ): string[] {
-  const key = getDayKeyFromDateStr(dateStr);
-  const dayConfig = workingHours[key];
+  const dayConfig = getEffectiveDayHours(dateStr, workingHours);
   if (!dayConfig || !dayConfig.open) {
     return [];
   }
 
-  const step = Math.max(10, Math.min(180, slotMinutes || 30));
+  const step = Math.max(10, Math.min(180, slotMinutes || 25));
   const startMin = timeToMinutes(dayConfig.start);
   const endMin = timeToMinutes(dayConfig.end);
   const slots: string[] = [];
@@ -209,7 +255,7 @@ export function buildGoogleCalendarUrl(params: {
 }): string {
   const [y, m, d] = params.dateStr.split('-');
   const startMin = timeToMinutes(params.startTimeHHMM);
-  const endMin = startMin + Math.max(15, params.durationMinutes || 30);
+  const endMin = startMin + Math.max(15, params.durationMinutes || 25);
 
   const startHHMM = minutesToHHMM(startMin).replace(':', '');
   const endHHMM = minutesToHHMM(endMin).replace(':', '');

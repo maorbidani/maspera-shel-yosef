@@ -34,6 +34,7 @@ import {
   saveBarbershopSettings,
 } from '../lib/supabase';
 import {
+  DEFAULT_SETTINGS,
   HEBREW_DAYS,
   type Appointment,
   type BarbershopSettings,
@@ -46,6 +47,7 @@ type AdminTab = 'appointments' | 'reminders' | 'settings';
 interface BarberAdminProps {
   adminToken: string;
   settings: BarbershopSettings;
+  appointmentsVersion: number;
   onSettingsUpdated: (next: BarbershopSettings) => void;
   onLogout: () => void;
 }
@@ -53,6 +55,7 @@ interface BarberAdminProps {
 export function BarberAdmin({
   adminToken,
   settings,
+  appointmentsVersion,
   onSettingsUpdated,
   onLogout,
 }: BarberAdminProps) {
@@ -122,7 +125,7 @@ export function BarberAdmin({
     if (activeTab === 'appointments') {
       void loadAppointments(selectedDate);
     }
-  }, [activeTab, selectedDate, loadAppointments]);
+  }, [activeTab, selectedDate, appointmentsVersion, loadAppointments]);
 
   const loadRemindersData = useCallback(async () => {
     setLoadingTomorrow(true);
@@ -156,7 +159,7 @@ export function BarberAdmin({
     if (activeTab === 'reminders') {
       void loadRemindersData();
     }
-  }, [activeTab, loadRemindersData]);
+  }, [activeTab, appointmentsVersion, loadRemindersData]);
 
   const manualSlotOptions = useMemo(() => {
     const allSlots = generateAllDaySlots(
@@ -996,7 +999,7 @@ export function BarberAdmin({
                   }
                   className="h-12 w-full rounded-xl border border-stone-300 bg-white px-3 text-sm tabular-nums text-stone-900 focus:border-stone-900 focus:outline-none"
                 >
-                  {[15, 20, 30, 40, 45, 60].map((m) => (
+                  {[15, 20, 25, 30, 40, 45, 60].map((m) => (
                     <option key={m} value={m}>
                       {m} דק׳
                     </option>
@@ -1068,7 +1071,7 @@ export function BarberAdmin({
                     </div>
 
                     {dayCfg.open ? (
-                      <div className="flex items-center gap-3">
+                      <div className="flex flex-wrap items-center gap-3">
                         <div className="flex items-center gap-2">
                           <span className="text-xs text-stone-500">מ-</span>
                           <input
@@ -1104,6 +1107,49 @@ export function BarberAdmin({
                             className="h-10 rounded-xl border border-stone-300 bg-white px-2.5 text-sm tabular-nums text-stone-900 focus:border-stone-900 focus:outline-none"
                           />
                         </div>
+
+                        {dayKey === '5' && (
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setDraftSettings((prev) => ({
+                                  ...prev,
+                                  working_hours: {
+                                    ...prev.working_hours,
+                                    '5': { open: true, start: '09:00', end: '13:00' },
+                                  },
+                                }))
+                              }
+                              className={`rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                                dayCfg.end === '13:00'
+                                  ? 'bg-stone-900 text-white'
+                                  : 'bg-stone-100 text-stone-700 hover:bg-stone-200'
+                              }`}
+                            >
+                              חורף (13:00)
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setDraftSettings((prev) => ({
+                                  ...prev,
+                                  working_hours: {
+                                    ...prev.working_hours,
+                                    '5': { open: true, start: '09:00', end: '14:00' },
+                                  },
+                                }))
+                              }
+                              className={`rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                                dayCfg.end === '14:00'
+                                  ? 'bg-stone-900 text-white'
+                                  : 'bg-stone-100 text-stone-700 hover:bg-stone-200'
+                              }`}
+                            >
+                              קיץ (14:00)
+                            </button>
+                          </div>
+                        )}
                       </div>
                     ) : (
                       <span className="text-xs text-stone-400">יום מנוחה — המספרה סגורה</span>
@@ -1127,7 +1173,20 @@ export function BarberAdmin({
             </div>
           )}
 
-          <div className="mt-6 flex justify-end">
+          <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <button
+              type="button"
+              onClick={() => {
+                setDraftSettings((prev) => ({
+                  ...DEFAULT_SETTINGS,
+                  phone: prev.phone || DEFAULT_SETTINGS.phone,
+                }));
+                setSettingsFeedback(null);
+              }}
+              className="min-h-[44px] rounded-xl border border-stone-200 px-4 py-2 text-xs font-semibold text-stone-700 hover:bg-stone-50"
+            >
+              טען הגדרות ברירת מחדל (25 דק׳ ושעות רשמיות)
+            </button>
             <button
               type="submit"
               disabled={savingSettings}

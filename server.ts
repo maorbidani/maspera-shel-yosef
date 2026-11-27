@@ -1,5 +1,4 @@
 import 'dotenv/config';
-import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,8 +10,6 @@ const __dirname = path.dirname(__filename);
 
 const PORT =
   process.env.NODE_ENV === 'production' ? Number(process.env.PORT) || 3000 : 3000;
-const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
-const TOKEN_TTL_MS = 12 * 60 * 60 * 1000;
 
 interface DispatchLog {
   appointmentId: string;
@@ -44,11 +41,26 @@ const reminderState: ReminderState = {
   logs: [],
 };
 
-const loginAttempts = new Map<string, { count: number; resetAt: number }>();
-
 function getServerSupabase(): SupabaseClient | null {
   const url = (process.env.VITE_SUPABASE_URL || '').trim();
-  const key = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || '').trim();
+  const key = (
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.VITE_SUPABASE_ANON_KEY ||
+    ''
+  ).trim();
+  if (!url || !key || !url.startsWith('http')) {
+    return null;
+  }
+  return createClient(url, key);
+}
+
+function getAuthVerifyClient(): SupabaseClient | null {
+  const url = (process.env.VITE_SUPABASE_URL || '').trim();
+  const key = (
+    process.env.VITE_SUPABASE_ANON_KEY ||
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    ''
+  ).trim();
   if (!url || !key || !url.startsWith('http')) {
     return null;
   }
@@ -111,52 +123,34 @@ function isAllowedWebhookUrl(rawUrl: string): boolean {
   }
 }
 
-function signAdminToken(): string {
-  const payload = Buffer.from(
-    JSON.stringify({ role: 'barber_admin', exp: Date.now() + TOKEN_TTL_MS })
-  ).toString('base64url');
-  const sig = crypto
-    .createHmac('sha256', SESSION_SECRET)
-    .update(payload)
-    .digest('base64url');
-  return `${payload}.${sig}`;
-}
-
-function verifyAdminToken(token: string): boolean {
-  const parts = token.split('.');
-  if (parts.length !== 2) return false;
-  const [payload, sig] = parts;
-  if (!payload || !sig) return false;
-
-  const expectedSig = crypto
-    .createHmac('sha256', SESSION_SECRET)
-    .update(payload)
-    .digest('base64url');
-
-  const sigBuf = Buffer.from(sig);
-  const expectedBuf = Buffer.from(expectedSig);
-  if (sigBuf.length !== expectedBuf.length) return false;
-  if (!crypto.timingSafeEqual(sigBuf, expectedBuf)) return false;
-
-  try {
-    const decoded = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as {
-      role?: string;
-      exp?: number;
-    };
-    return decoded.role === 'barber_admin' && typeof decoded.exp === 'number' && decoded.exp > Date.now();
-  } catch {
-    return false;
-  }
-}
-
-function requireAdmin(req: Request, res: Response, next: NextFunction): void {
+async function requireSupabaseAdmin(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
   const auth = req.headers.authorization || '';
   const token = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
-  if (!token || !verifyAdminToken(token)) {
-    res.status(401).json({ error: 'נדרשת הזדהות כספר' });
+  if (!token) {
+    res.status(401).json({ error: 'נדרשת התחברות דרך Supabase Auth' });
     return;
   }
-  next();
+
+  const supabase = getAuthVerifyClient();
+  if (!supabase) {
+    res.status(503).json({ error: 'חיבור Supabase אינו מוגדר בשרת' });
+    return;
+  }
+
+  try {
+    const { data, error } = await supabase.auth.getUser(token);
+    if (error || !data?.user) {
+      res.status(401).json({ error: 'פג תוקף ההזדהות מול Supabase' });
+      return;
+    }
+    next();
+  } catch {
+    res.status(401).json({ error: 'שגיאה באימות המשתמש מול Supabase' });
+  }
 }
 
 async function runAutomaticReminderCycle(manualTrigger: boolean): Promise<{
@@ -185,7 +179,7 @@ async function runAutomaticReminderCycle(manualTrigger: boolean): Promise<{
     .eq('id', 1)
     .maybeSingle();
 
-  const shopName = settingsRow?.shop_name || 'המספרה של יוסף';
+  const shopName = settingsRow?.shop_name || 'מספרת גברים וילדים יוסף נחמני';
 
   const { data: appointments, error } = await supabase
     .from('appointments')
@@ -291,39 +285,7 @@ async function startServer() {
   const app = express();
   app.use(express.json({ limit: '100kb' }));
 
-  app.post('/api/admin/login', (req: Request, res: Response) => {
-    const ip = req.ip || 'unknown';
-    const now = Date.now();
-    const record = loginAttempts.get(ip);
-    if (record && record.resetAt > now && record.count >= 15) {
-      res.status(429).json({ error: 'יותר מדי ניסיונות שגויים. נסה שוב בעוד מספר דקות.' });
-      return;
-    }
-
-    const submittedPin = typeof req.body?.pin === 'string' ? req.body.pin.trim() : '';
-    const expectedPin = (process.env.BARBER_ADMIN_PIN || '').trim() || '1234';
-
-    const submittedDigest = crypto.createHash('sha256').update(submittedPin).digest();
-    const expectedDigest = crypto.createHash('sha256').update(expectedPin).digest();
-    const valid = crypto.timingSafeEqual(submittedDigest, expectedDigest);
-
-    if (!valid) {
-      const nextCount = record && record.resetAt > now ? record.count + 1 : 1;
-      loginAttempts.set(ip, { count: nextCount, resetAt: now + 5 * 60 * 1000 });
-      res.status(401).json({ error: 'קוד PIN שגוי' });
-      return;
-    }
-
-    loginAttempts.delete(ip);
-    const token = signAdminToken();
-    res.json({ token });
-  });
-
-  app.get('/api/admin/verify', requireAdmin, (_req: Request, res: Response) => {
-    res.json({ valid: true });
-  });
-
-  app.get('/api/admin/reminders/status', requireAdmin, (_req: Request, res: Response) => {
+  app.get('/api/admin/reminders/status', requireSupabaseAdmin, (_req: Request, res: Response) => {
     const webhookUrl = (process.env.WHATSAPP_WEBHOOK_URL || '').trim();
     const gatewayConfigured = Boolean(webhookUrl) && isAllowedWebhookUrl(webhookUrl);
     const supabaseConfigured = Boolean(getServerSupabase());
@@ -341,7 +303,7 @@ async function startServer() {
     });
   });
 
-  app.post('/api/admin/reminders/settings', requireAdmin, (req: Request, res: Response) => {
+  app.post('/api/admin/reminders/settings', requireSupabaseAdmin, (req: Request, res: Response) => {
     const { autoEnabled, sendHour, template } = req.body ?? {};
     if (typeof autoEnabled === 'boolean') {
       reminderState.autoEnabled = autoEnabled;
@@ -359,7 +321,7 @@ async function startServer() {
     });
   });
 
-  app.post('/api/admin/reminders/mark-sent', requireAdmin, (req: Request, res: Response) => {
+  app.post('/api/admin/reminders/mark-sent', requireSupabaseAdmin, (req: Request, res: Response) => {
     const { appointmentId, customerName, customerPhone, appointmentDate, startTime } = req.body ?? {};
     if (typeof appointmentId !== 'string' || !appointmentId.trim()) {
       res.status(400).json({ error: 'מזהה תור חסר' });
@@ -383,7 +345,7 @@ async function startServer() {
     res.json({ sentIds: Array.from(reminderState.sentIds), logs: reminderState.logs });
   });
 
-  app.post('/api/admin/reminders/run', requireAdmin, async (_req: Request, res: Response) => {
+  app.post('/api/admin/reminders/run', requireSupabaseAdmin, async (_req: Request, res: Response) => {
     const result = await runAutomaticReminderCycle(true);
     res.json({
       ...result,
@@ -412,7 +374,6 @@ async function startServer() {
     });
   }
 
-  // Background automated scheduler for day-before WhatsApp reminders (checks every 5 minutes)
   setInterval(() => {
     if (!reminderState.autoEnabled) return;
     const { hhmm } = getIsraelNowParts();
